@@ -79,3 +79,5 @@ What next today ?
 -> make it end-to-end package any one can use
 -> document for use
 -> What device can we use for setting it up on site
+
+** call pankaj after lunch

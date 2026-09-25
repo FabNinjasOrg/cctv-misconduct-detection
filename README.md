@@ -15,7 +15,7 @@ There are two ways to use it, and most people end up using both:
 
 ## Quick start
 
-Three steps. You need your camera's **username** and its **IP address** — both are in the camera's phone app, usually under *Advanced Settings → Camera Account*.
+Four steps. You need your camera's **username** and its **IP address** — both are in the camera's phone app, usually under *Advanced Settings → Camera Account*.
 
 > **The username trips up almost everyone.** On TP-Link Tapo cameras it's a name *you* chose when setting the camera up, and it's usually **not** `admin`. If the logs later say `401 Unauthorized`, this is nearly always why.
 
@@ -43,6 +43,10 @@ cameras:
 
 Swap in your username and IP address (something like `192.168.1.64`). Leave `${CAM1_PASSWORD}` alone — it reaches into `.env` and fetches the password, which is what keeps the real password out of this file.
 
+**4. Set how much footage gets checked** — `stream.yaml`, `analyze_one_in`
+
+This is the one setting you'll actually want to think about. See the section below for how to choose it.
+
 **Then start it:**
 
 ```bash
@@ -50,6 +54,59 @@ docker compose up -d --build
 ```
 
 That's everything. It's now recording and checking. The first run takes a few minutes to build; after that it's quick. Results appear in **`evidence/live_detections/`**.
+
+---
+
+## How much footage gets checked (`analyze_one_in`)
+
+**The camera is always recorded. Nothing is ever missed on the recording side.** The video is chopped into **10-second chunks**, one after another, without pause.
+
+Checking a chunk is the slow part. Running four AI detectors over 10 seconds of video takes **roughly 40 seconds** on a normal laptop or office PC. So chunks arrive faster than they can be checked — one every 10 seconds, each taking 40 to look at. Left alone, the queue would grow forever and your alerts would drift further and further into the past.
+
+`analyze_one_in` is how you fix that. It means: **check one chunk out of every N, throw the rest away unchecked.**
+
+| Setting | What gets checked | Coverage |
+|---|---|---|
+| `analyze_one_in: 1` | Every chunk | 100% — needs a very fast machine |
+| `analyze_one_in: 3` | 10 seconds out of every 30 | ~33% |
+| `analyze_one_in: 5` | 10 seconds out of every 50 | ~20% |
+| `analyze_one_in: 6` | 10 seconds out of every minute | ~17% |
+
+### Picking the right number
+
+One rule:
+
+> **10 × N must be larger than the time one check takes.**
+
+At `N = 5`, a chunk to check comes up every 50 seconds and a check takes ~40 — so it finishes with 10 seconds to spare and never falls behind. At `N = 3` it's every 30 seconds against 40 of work, and the queue slowly grows.
+
+**On a typical machine, start with `analyze_one_in: 5`.** Then watch the logs:
+
+```bash
+docker compose logs -f stream
+```
+
+If you see this, the number is too low:
+
+```
+analysis took 41s for 10s of footage - not keeping up in real time.
+```
+
+Raise it by one and restart. If you never see that warning, you can try lowering it for better coverage.
+
+### What you give up
+
+With `N = 5` you're watching about one second in five. An incident lasting a few seconds might land in a skipped chunk and be missed entirely. Something that goes on for half a minute will almost certainly be caught.
+
+That's the trade, and it's genuinely better than the alternative: a system set to check everything falls behind, and once it's behind it starts **discarding the oldest chunks anyway** (see `max_backlog_segments`) — so you end up with worse coverage *and* alerts that are minutes stale. Sampling deliberately beats drowning.
+
+Faster hardware is the real answer if you need full coverage. A machine with a decent NVIDIA GPU checks a chunk in a second or two, and `analyze_one_in: 1` becomes realistic.
+
+After changing it:
+
+```bash
+docker compose restart stream
+```
 
 ---
 
