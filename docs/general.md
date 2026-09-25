@@ -80,4 +80,12 @@ What next today ?
 -> document for use
 -> What device can we use for setting it up on site
 
-** call pankaj after lunch
+========
+
+2. Add a "usable pose" gate in code — my recommendation if the camera can't move. Skip any person where the maths can't work:
+
+- hips not visible → trunk angle and true scale are unknowable
+- box taller than ~60% of frame → too close, normalization breaks
+- box touching a frame edge → body is cut off
+
+These aren't fudge factors; they're preconditions the calculations already silently assume. I'd put it in app/shared/pose_tracking.py so all three detectors inherit it. Based on your numbers this would have suppressed all six false positives.

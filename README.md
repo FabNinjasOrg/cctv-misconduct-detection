@@ -248,36 +248,6 @@ Uploaded videos don't write to this log; their results come back in the API resp
 
 ---
 
-## Running without Docker
-
-```bash
-pip install -r requirements.txt
-uvicorn main:app --reload     # the API, at http://127.0.0.1:8000/docs
-python -m app.stream          # the camera recorder
-```
-
-Run these from this folder — the code looks for `models/` and `evidence/` relative to where you started it.
-
-You can also watch a video play back with the detection drawn on top as it goes, which is the best way to get a feel for what the detectors actually see:
-
-```bash
-python3 -m app.actions.spit.playback      uploaded_clips/your-clip.mp4
-python3 -m app.actions.fight.playback     uploaded_clips/your-clip.mp4
-python3 -m app.actions.vandalism.playback uploaded_clips/your-clip.mp4
-python3 -m app.actions.fall.playback      uploaded_clips/your-clip.mp4
-```
-
----
-
-## Before you sell this to anyone
-
-Two licensing problems worth sorting out early — both are far easier to fix now than after a customer is using it:
-
-- The fight detector's weights in `models/movinet/` are **CC BY-NC 4.0 — non-commercial use only**. They're baked into the Docker image, so as things stand that image can't be sold. See `models/movinet/NOTICE.md`.
-- **Ultralytics YOLO is AGPL-3.0**, which carries real obligations for anything built on it. Worth a proper look.
-
-One operational thing too: **nothing cleans up old evidence**. Running a camera around the clock, those folders grow until the disk fills.
-
----
+**Getting false alarms?** See [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — what causes them, and everything we can do about it, in order.
 
 For deployment details and tuning, see [`docker/DOCKER.md`](docker/DOCKER.md). For how the detection pipeline is designed, see [`docs/general.md`](docs/general.md).
