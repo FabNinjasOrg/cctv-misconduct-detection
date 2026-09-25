@@ -1,5 +1,9 @@
 # Running in Docker
 
+> For plain setup instructions, read `README.md` at the project root first.
+> This file is the deeper reference: how the pieces fit, what to tune, and what
+> tends to go wrong.
+
 Containerised deployment. Two services from one image:
 
 - **`detector`** — the FastAPI app, same as `uvicorn main:app`, no code changes.
