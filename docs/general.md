@@ -17,14 +17,9 @@ Framework we will use:
 24th Sept EOD:
 
 HARSH-73: CCTV Footage Misconducting Detection
-- Converting this whole setup into installable package into any local PC
-    - Created the docker setup
-    - Setup the CCTV stream pipeline
-    - Implemented the ffmpeg for stream segment and chunking
-    - Validation through our action detection scripts
-- Review the ffmpeg media framework and it's usage in our application for convert the RTSP stream into video chunks
-
-- Pending: a live CCTV connection to test against what we have develop
+- Testing with the real cctv stream
+- Made few adjustments of the area and persons detections to filter out falls positives
+- 
 
 ==========
 

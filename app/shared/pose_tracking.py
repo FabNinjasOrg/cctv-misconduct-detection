@@ -11,7 +11,11 @@ a combined verdict. Now the pass happens once and the result is shared.
 The detectors still work standalone: called without a pre-computed track set, each
 one runs this itself, exactly as before.
 """
+import logging
+
 import cv2
+
+log = logging.getLogger(__name__)
 
 PERSON_CLASS_ID = 0
 
@@ -19,6 +23,52 @@ TRACK_FPS = 15.0        # how many frames per second to run pose detection on - 
                         # enough to catch a swing or a stumble, which can be under
                         # half a second, without paying for every frame of a 30fps feed
 IOU_MATCH_MIN = 0.3     # how much two boxes must overlap to be treated as the same person
+
+
+# ---------------------------------------------------------------------------
+# Usable-pose gate
+#
+# Spit, vandalism and fall all measure a person against their own body: trunk
+# angle from shoulders-to-hips, hand speed in box-heights per second, "lying
+# flat" from box shape. Every one of those needs a person who is *wholly in
+# frame at a distance* - a CCTV view. Given a close-up instead, the arithmetic
+# does not fail loudly, it quietly returns nonsense:
+#
+#   - no hips  -> the trunk vector is invented from noise, so its angle swings
+#                 wildly, which is exactly the signature a fall looks for
+#   - too close -> the box is head-and-shoulders, perhaps a third of the real
+#                 body, so "box heights per second" reads about 3x too fast and
+#                 reaching for a phone clears the violent-strike bar
+#
+# Measured on a desk camera: person at 81% of frame height, box aspect 0.65
+# (wider than tall), hips/knees/ankles all invisible - six false detections in
+# thirteen minutes across all three detectors.
+#
+# So this is not a tuning knob layered on top. It is the precondition those
+# calculations already silently assume, made explicit: if we cannot measure the
+# body, we decline to judge it rather than judge it wrongly.
+#
+# Deliberately NOT gated on box aspect ratio: a person going from upright to
+# horizontal is the fall signal itself, and rejecting wide boxes would throw
+# away the very thing we are looking for.
+# ---------------------------------------------------------------------------
+
+REQUIRE_VISIBLE_HIPS = True   # set False to accept poses with no hip keypoints
+
+L_HIP, R_HIP = 11, 12         # COCO pose keypoint indices, as the detectors use
+KEYPOINT_CONF_FLOOR = 0.15    # matches CONF_FLOOR in all three detectors
+
+# A person taller than this fraction of the frame is too close for their box to
+# be a meaningful yardstick. Height only, never width: a fallen person's box is
+# short and wide, so gating on width would reject real falls.
+#
+# The hips check above does the real work - measured across our clips, a genuine
+# event had hips on 12/12 sampled frames while the desk camera managed 1/13.
+# This is only a backstop for a pose so close that hips are found but the box
+# still cannot be trusted, so it is set loosely on purpose. At 0.60 it rejected
+# spit-1.mp4, a real detection whose subject measures 0.62 with hips plainly
+# visible; the offending desk footage measures 0.78.
+MAX_BOX_HEIGHT_FRACTION = 0.75
 
 
 def iou(box_a, box_b) -> float:
@@ -32,6 +82,32 @@ def iou(box_a, box_b) -> float:
     area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
     union = area_a + area_b - inter
     return inter / union if union else 0.0
+
+
+def pose_rejection_reason(det: dict, frame_height: int):
+    """Why this person cannot be measured reliably, or None if they can.
+
+    Returns a short string so the caller can report *what* was skipped rather
+    than just how much - the difference between "the camera is too close" and
+    "hips are occluded" changes what you would do about it."""
+    # Hips first: it is the check that actually discriminates, so when both
+    # would fire this reports the more useful reason.
+    #
+    # One hip is enough. Requiring both would reject anyone standing side-on
+    # with a hip occluded, and a single hip still anchors the trunk and gives a
+    # real torso length - which is all the arithmetic downstream needs.
+    if REQUIRE_VISIBLE_HIPS:
+        conf = det.get("kpts_conf")
+        if conf is None or len(conf) <= R_HIP:
+            return "no keypoints"
+        if max(conf[L_HIP], conf[R_HIP]) < KEYPOINT_CONF_FLOOR:
+            return "hips not visible"
+
+    x1, y1, x2, y2 = det["box"]
+    if frame_height and (y2 - y1) > frame_height * MAX_BOX_HEIGHT_FRACTION:
+        return "too close to camera"
+
+    return None
 
 
 def whole_clip_segments(filepath: str):
@@ -83,6 +159,7 @@ def track_segment(filepath: str, segment: dict, person_model, fps: float) -> dic
     last_box: dict = {}
     next_id = 0
     frame_number = segment["start_frame"]
+    skipped: dict = {}      # rejection reason -> how many times, for one log line at the end
 
     while frame_number <= segment["end_frame"]:
         ok, frame = video.read()
@@ -90,6 +167,7 @@ def track_segment(filepath: str, segment: dict, person_model, fps: float) -> dic
             break
 
         if (frame_number - segment["start_frame"]) % frame_skip == 0:
+            frame_height = frame.shape[0]
             result = person_model(frame, verbose=False)[0]
             detections = [
                 {
@@ -100,6 +178,18 @@ def track_segment(filepath: str, segment: dict, person_model, fps: float) -> dic
                 for i, box in enumerate(result.boxes)
                 if int(box.cls) == PERSON_CLASS_ID
             ]
+
+            # Drop anyone we cannot measure, before tracking rather than after:
+            # a track built from unusable frames would still be scored, and the
+            # detectors have no way to tell that its numbers are meaningless.
+            usable = []
+            for det in detections:
+                reason = pose_rejection_reason(det, frame_height)
+                if reason is None:
+                    usable.append(det)
+                else:
+                    skipped[reason] = skipped.get(reason, 0) + 1
+            detections = usable
 
             # match each detection to the closest-matching person from the last frame
             assigned = set()
@@ -127,6 +217,17 @@ def track_segment(filepath: str, segment: dict, person_model, fps: float) -> dic
         frame_number += 1
 
     video.release()
+
+    # One line, only when something was dropped. Worth surfacing rather than
+    # silently discarding: a clip where every person was skipped looks exactly
+    # like a clip where nothing happened, and those need telling apart.
+    if skipped:
+        log.info(
+            "pose gate skipped %d detection(s): %s",
+            sum(skipped.values()),
+            ", ".join(f"{count} {reason}" for reason, count in sorted(skipped.items())),
+        )
+
     return tracks
 
 
