@@ -8,7 +8,7 @@
 
 cameras:
   - name: cam-1
-    url: rtsp://admin:${CAM1_PASSWORD}@192.168.29.12:554/stream1
+    url: rtsp://tapo-office:${CAM1_PASSWORD}@192.168.1.200:554/stream1
 
     # Example of a second camera - each one records and is analyzed independently.
     # - name: back-door

@@ -92,7 +92,17 @@ class Recorder:
 
             "-i", self.camera.url,
 
-            "-c", "copy",               # no re-encoding - see the module docstring
+            "-c:v", "copy",             # no re-encoding - see the module docstring
+
+            # Drop audio entirely. Nothing here listens to it - every detector
+            # works on pixels - and keeping it actively breaks recording: many
+            # cameras (Tapo and most ONVIF ones) send G.711 a-law/mu-law, which
+            # MP4 cannot store. Copying it produces exactly this, on every
+            # segment, forever:
+            #     Could not write header (incorrect codec parameters ?)
+            # Re-encoding to AAC would also fix it, but spends CPU on a stream
+            # that then gets thrown away.
+            "-an",
 
             # The segment muxer: start a new output file every N seconds.
             "-f", "segment",
