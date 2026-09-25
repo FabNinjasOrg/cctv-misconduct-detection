@@ -17,15 +17,15 @@ There are two ways to use it, and most people end up using both:
 
 Every number below was measured on this project, not estimated.
 
-| | Minimum | Recommended | Why |
-|---|---|---|---|
-| **Processor** | 4 cores | **8 cores** | This is the part that limits you. Analysis peaked at **379% CPU** — it uses about 4 cores flat out. |
-| **Memory (RAM)** | 4 GB | **8 GB** | The software itself is light: **532 MB** at peak. The rest is for your operating system and Docker. |
-| **Free disk space** | 10 GB | **20 GB** | The installed software is **2.8 GB**. The rest is headroom for saved evidence. |
-| **Operating system** | Anything that runs Docker | Windows, macOS or Linux | Nothing else is needed — Docker carries its own dependencies. |
-| **Network** | Same network as the camera | Wired | Cameras only stream to devices on their own network. |
-| **Graphics card** | Not required | NVIDIA, for checking every second of footage | Without one, the system checks a sample rather than all of it. |
-| **Cameras per machine** | 1 | 1 | Extra cameras share the same processor and divide the coverage. |
+| | Minimum | Recommended |
+|---|---|---|
+| **Processor** | 4 cores | **8 cores** |
+| **Memory (RAM)** | 4 GB | **8 GB** |
+| **Free disk space** | 10 GB | **20 GB** |
+| **Operating system** | Anything that runs Docker | Windows, macOS or Linux |
+| **Network** | Same network as the camera | Wired |
+| **Graphics card** | Not required | NVIDIA, for checking every second of footage |
+| **Cameras per machine** | 1 | 1 |
 
 ---
 
