@@ -1,8 +1,8 @@
 # Plays a clip back with the fall-detection pose skeleton and confidence overlaid live,
 # synced to playback time. Runs the existing kinematic_detector pipeline once up front
 # (no changes to its scoring) and keeps every frame's keypoints, not just the top
-# evidence frames, then redraws them as the clip plays. See spit/playback.py and
-# fight/playback.py for the other action counterparts.
+# evidence frames, then redraws them as the clip plays. See app/actions/spit/playback.py and
+# app/actions/fight/playback.py for the other action counterparts.
 
 import itertools
 import sys
@@ -10,8 +10,8 @@ import sys
 import cv2
 from ultralytics import YOLO
 
-from motion_filter import detect_motion, group_motion_segments
-from fall.kinematic_detector import (
+from app.shared.motion_filter import detect_motion, group_motion_segments
+from app.actions.fall.kinematic_detector import (
     CONF_FLOOR,
     SKELETON_EDGES,
     compute_kinematics,

@@ -1,8 +1,8 @@
-# Plays a clip back with the vandalism-detection pose skeleton and confidence overlaid
-# live, synced to playback time. Runs the existing object_action_detector pipeline once
-# up front (no changes to its scoring) and keeps every frame's keypoints, not just the
-# top evidence frames, then redraws them as the clip plays. See spit/playback.py and
-# fight/playback.py for the other action counterparts.
+# Plays a clip back with the spit-detection pose skeleton and confidence overlaid live,
+# synced to playback time. Runs the existing kinematic_detector pipeline once up front
+# (no changes to its scoring) and keeps every frame's keypoints, not just the top evidence
+# frames, then redraws them as the clip plays. See app/actions/fight/playback.py for the fight-detection
+# counterpart.
 
 import itertools
 import sys
@@ -10,8 +10,8 @@ import sys
 import cv2
 from ultralytics import YOLO
 
-from motion_filter import detect_motion, group_motion_segments
-from vandalism.object_action_detector import (
+from app.shared.motion_filter import detect_motion, group_motion_segments
+from app.actions.spit.kinematic_detector import (
     CONF_FLOOR,
     SKELETON_EDGES,
     compute_kinematics,
@@ -19,12 +19,12 @@ from vandalism.object_action_detector import (
     track_segment,
 )
 
-WINDOW_NAME = "Vandalism Detection - Playback"
+WINDOW_NAME = "Spit Detection - Playback"
 
 
 def analyze_for_playback(filepath: str, person_model) -> dict:
-    """Runs the vandalism-detection pipeline once and returns frame_number -> list of
-    tracked people in that frame, each with their keypoints and their track's confidence."""
+    """Runs the spit-detection pipeline once and returns frame_number -> list of tracked
+    people in that frame, each with their keypoints and their track's confidence score."""
     video = cv2.VideoCapture(filepath)
     fps = video.get(cv2.CAP_PROP_FPS) or 25.0
     frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -40,14 +40,14 @@ def analyze_for_playback(filepath: str, person_model) -> dict:
             features = compute_kinematics(records)
             if features is None:
                 continue
-            confidence, signals = score_event(filepath, features)
+            other_tracks = {tid: recs for tid, recs in tracks.items() if tid != track_id}
+            confidence, _signals = score_event(filepath, features, other_tracks)
             for record in records:
                 by_frame.setdefault(record["frame"], []).append({
                     "box": record["box"],
                     "kpts_xy": record["kpts_xy"],
                     "kpts_conf": record["kpts_conf"],
                     "confidence": confidence,
-                    "action": signals["action"],
                 })
 
     return by_frame
@@ -67,7 +67,7 @@ def _draw_person(frame, person: dict) -> None:
         if kpts_conf[idx] >= CONF_FLOOR:
             cv2.circle(frame, (int(x), int(y)), 3, (0, 255, 0), -1)
 
-    label = f"Vandalism {person['confidence']:.0%} ({person['action']})"
+    label = f"Spit {person['confidence']:.0%}"
     label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(frame, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
@@ -98,7 +98,7 @@ def play_with_overlay(filepath: str, person_model) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        sys.exit("usage: python3 -m vandalism.playback <path-to-clip>")
+        sys.exit("usage: python3 -m app.actions.spit.playback <path-to-clip>")
 
     person_model = YOLO("models/yolo11n-pose.pt")
     play_with_overlay(sys.argv[1], person_model)

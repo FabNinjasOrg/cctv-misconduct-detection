@@ -4,7 +4,7 @@
 #
 # The application is copied to /app, which reproduces this project's own layout:
 # every model and evidence path in the code is relative to the project root (see
-# CLAUDE.md), so WORKDIR /app makes them all resolve unchanged. That is why no
+# README.md), so WORKDIR /app makes them all resolve unchanged. That is why no
 # detector needed editing to be containerised.
 
 FROM python:3.13-slim
@@ -30,7 +30,7 @@ RUN mkdir -p /opt/ultralytics
 
 WORKDIR /app
 
-COPY requirements-docker.txt /tmp/requirements.txt
+COPY docker/requirements.txt /tmp/requirements.txt
 
 # torch first, and only from PyTorch's CPU index. The default PyPI wheel bundles
 # the CUDA runtime and adds roughly 2.5GB to the image for GPU support a client's

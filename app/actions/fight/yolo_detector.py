@@ -3,11 +3,11 @@ import os
 import cv2
 from ultralytics import YOLO
 
-from motion_filter import detect_motion, group_motion_segments
-from fight.person_guard import SINGLE_PERSON_PENALTY, max_people_nearby
-from gemini_review import review_clip
+from app.shared.motion_filter import detect_motion, group_motion_segments
+from app.actions.fight.person_guard import SINGLE_PERSON_PENALTY, max_people_nearby
+from app.shared.gemini_review import review_clip
 
-FIGHT_MODEL_PATH = "fight/fight_yolov8n.pt"
+FIGHT_MODEL_PATH = "models/fight_yolov8n.pt"
 VIOLENCE_CLASS_NAME = "violence"
 CONFIDENCE_MIN = 0.5   # ignore low-confidence guesses
 CHECKS_PER_SECOND = 4.0
@@ -22,7 +22,7 @@ FIGHT_QUESTION = (
     "or 'no', then a short reason."
 )
 
-FIGHT_FRAMES_DIR = "fight/evidence/yolo"
+FIGHT_FRAMES_DIR = "evidence/fight/yolo"
 os.makedirs(FIGHT_FRAMES_DIR, exist_ok=True)
 
 fight_model = YOLO(FIGHT_MODEL_PATH)

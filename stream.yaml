@@ -22,12 +22,12 @@ capture:
   segment_seconds: 10
 
   # Where ffmpeg drops finished chunks, waiting to be analyzed.
-  spool_dir: stream/spool
+  spool_dir: spool
 
 
 analysis:
   # The detection API. Inside docker compose the API is reachable by its service
-  # name; running `python -m stream` on the host instead, use
+  # name; running `python -m app.stream` on the host instead, use
   # http://localhost:8000/analyze-action
   api_url: http://detector:8000/analyze-action
 
@@ -53,8 +53,8 @@ analysis:
 output:
   # Saved evidence: one folder per camera, plus an append-only log of every
   # detection.
-  evidence_dir: stream/evidence
-  detections_log: stream/evidence/detections.jsonl
+  evidence_dir: evidence/live
+  detections_log: evidence/live/detections.jsonl
 
   # Keep the video the detection came from, next to the evidence frame. Costs
   # disk, but a still frame alone is rarely enough to judge what happened.

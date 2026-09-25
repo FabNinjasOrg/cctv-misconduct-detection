@@ -48,11 +48,11 @@ from ultralytics import YOLO
 
 # Pose tracking lives in pose_tracking.py, shared with the spit and fall
 # detectors - all three ran the identical pass over the same frames.
-from pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
+from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
 
-# from motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
+# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 
-# COCO-17 keypoint indices, matching spit/kinematic_detector.py's convention
+# COCO-17 keypoint indices, matching app/actions/spit/kinematic_detector.py's convention
 NOSE = 0
 L_SHOULDER, R_SHOULDER = 5, 6
 L_WRIST, R_WRIST = 9, 10
@@ -100,7 +100,7 @@ CONTACT_PENALTY = 0.35            # confidence multiplier applied if another per
 # nose instead of away from the body toward an external object/person. Checked against real
 # footage: a spitting clip's fast hand-to-face reach and follow-through registered as two
 # "strikes" (wrist ending 0.22x box-height from the subject's own nose) and crossed
-# DECISION_THRESHOLD as vandalism at 0.53. Same distance/ratio spit/kinematic_detector.py
+# DECISION_THRESHOLD as vandalism at 0.53. Same distance/ratio app/actions/spit/kinematic_detector.py
 # already uses for its own hand-to-mouth check (HAND_ABS_MAX), just not previously computed here.
 SELF_DIRECTED_HAND_MAX = 0.35
 SELF_DIRECTED_PENALTY = 0.35      # same discount factor as CONTACT_PENALTY - this is the same
@@ -114,7 +114,7 @@ SELF_DIRECTED_PENALTY = 0.35      # same discount factor as CONTACT_PENALTY - th
 W_STRIKE, W_TOOL = 0.65, 0.35
 DECISION_THRESHOLD = 0.5
 
-VANDALISM_FRAMES_DIR = "vandalism/evidence/object_action"
+VANDALISM_FRAMES_DIR = "evidence/vandalism/object_action"
 os.makedirs(VANDALISM_FRAMES_DIR, exist_ok=True)
 
 object_model = YOLO("models/yolo11n.pt")  # general object detector, checked near the swinging hand

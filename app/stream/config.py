@@ -17,7 +17,7 @@ import yaml
 
 CONFIG_PATH = "stream.yaml"
 
-# A camera's name becomes a folder name (stream/spool/<name>/...), so it is
+# A camera's name becomes a folder name (spool/<name>/...), so it is
 # restricted to characters that are safe in a path. This blocks a name like
 # "../../etc" from escaping the spool directory, and avoids spaces that would
 # need quoting everywhere downstream.
@@ -78,7 +78,7 @@ def load(path: str = CONFIG_PATH) -> Config:
         cameras=_read_cameras(raw.get("cameras") or [], path),
 
         segment_seconds=int(capture.get("segment_seconds", 10)),
-        spool_dir=str(capture.get("spool_dir", "stream/spool")),
+        spool_dir=str(capture.get("spool_dir", "spool")),
 
         api_url=os.path.expandvars(
             str(analysis.get("api_url", "http://detector:8000/analyze-action"))
@@ -88,8 +88,8 @@ def load(path: str = CONFIG_PATH) -> Config:
         min_confidence=float(analysis.get("min_confidence", 0.5)),
         timeout_seconds=int(analysis.get("timeout_seconds", 600)),
 
-        evidence_dir=str(output.get("evidence_dir", "stream/evidence")),
-        detections_log=str(output.get("detections_log", "stream/evidence/detections.jsonl")),
+        evidence_dir=str(output.get("evidence_dir", "evidence/live")),
+        detections_log=str(output.get("detections_log", "evidence/live/detections.jsonl")),
         keep_segment_on_detection=bool(output.get("keep_segment_on_detection", True)),
     )
 

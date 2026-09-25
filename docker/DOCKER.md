@@ -42,14 +42,14 @@ error, not a confusing authentication failure later.
 RTSP camera
     |  ffmpeg, -c copy (no re-encode, so recording costs almost no CPU)
     v
-stream/spool/<camera>/<camera>_<timestamp>.mp4      10-second chunks
+spool/<camera>/<camera>_<timestamp>.mp4      10-second chunks
     |  worker takes each finished chunk
     v
 POST /analyze-action  ->  detector service
     |  anything at or above min_confidence
     v
-stream/evidence/<camera>/   frame + clip
-stream/evidence/detections.jsonl
+evidence/live/<camera>/   frame + clip
+evidence/live/detections.jsonl
 ```
 
 Each detection appends one line to `detections.jsonl`:
@@ -58,8 +58,8 @@ Each detection appends one line to `detections.jsonl`:
 {"detected_at":"2026-09-24T07:20:30+00:00","camera":"cam-1",
  "segment":"cam-1_20260924-071830.mp4","action":"fall","confidence":0.704,
  "scores":{"spit":0.185,"vandalism":0.207,"fall":0.704,"fight":0.0},
- "evidence_frame":"stream/evidence/cam-1/..._fall_70pct.jpg",
- "evidence_clip":"stream/evidence/cam-1/..._fall_70pct.mp4"}
+ "evidence_frame":"evidence/live/cam-1/..._fall_70pct.jpg",
+ "evidence_clip":"evidence/live/cam-1/..._fall_70pct.mp4"}
 ```
 
 ### Keeping up
@@ -105,7 +105,7 @@ curl -F "filepath=uploaded_clips/spit-1.mp4" \
 ```
 
 Every clip already in `uploaded_clips/` is visible to the container, and evidence
-is written straight back into `analyze_action/evidence/`, `spit/evidence/` and so
+is written straight back into `evidence/detections/`, `evidence/spit/` and so
 on, exactly where a native run puts it.
 
 ## Endpoints
@@ -137,16 +137,16 @@ docker compose up -d --build  # rebuild after changing code
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | The image. App copied to `/app`. |
+| `docker/Dockerfile` | The image. App copied to `/app`. |
 | `.dockerignore` | Keeps clips, evidence, caches and `.env` out of the image. |
 | `compose.yaml` | Ports, env, volumes, restart policy, log rotation. |
-| `requirements-docker.txt` | Pinned dependency set for reproducible builds. |
+| `docker/requirements.txt` | Pinned dependency set for reproducible builds. |
 | `.env.example` | Template for `.env`. |
 
 ## Things worth knowing
 
 **`GEMINI_KEY` must be set or the app will not start.** `main.py` imports
-`fight/yolo_detector.py`, which imports `gemini_review.py`, which reads
+`app/actions/fight/yolo_detector.py`, which imports `app/shared/gemini_review.py`, which reads
 `os.environ["GEMINI_KEY"]` at module level. An unset value is a `KeyError` during
 import. A placeholder is fine — nothing the container runs calls Gemini.
 
@@ -157,7 +157,7 @@ mid-development — keep using native `uvicorn main:app --reload` for day-to-day
 work and Docker for deployment.
 
 **Pinned vs unpinned deps.** `requirements.txt` stays unpinned for local
-development; `requirements-docker.txt` pins everything so the image builds
+development; `docker/requirements.txt` pins everything so the image builds
 identically later. They must be kept in sync by hand.
 
 **Architecture.** An image built on an Apple Silicon Mac is `arm64` and will not
@@ -168,7 +168,7 @@ docker buildx build --platform linux/amd64 -t cctv-detection:amd64 .
 ```
 
 **Size.** ~2.8GB — torch, ultralytics and the MoViNet stack. The CPU-only torch
-index in the `Dockerfile` already saves about 2.5GB over the default CUDA wheels.
+index in the `docker/Dockerfile` already saves about 2.5GB over the default CUDA wheels.
 For GPU, swap that index URL for the matching `cu___` channel.
 
 **Speed.** A 6-second clip took ~25s to analyze in this container on an 8-core
@@ -178,8 +178,8 @@ duty cycle, detector selection) rather than assuming real-time analysis.
 
 ## Before this ships to a client
 
-- **`fight/vd_mil/` is CC BY-NC 4.0, internal/research use only** (see
-  `fight/vd_mil/NOTICE.md`). Those weights are baked into the image, so it cannot
+- **`models/movinet/` is CC BY-NC 4.0, internal/research use only** (see
+  `models/movinet/NOTICE.md`). Those weights are baked into the image, so it cannot
   currently be distributed commercially.
 - **Ultralytics YOLO is AGPL-3.0.** Worth a proper look before selling a service
   built on it.

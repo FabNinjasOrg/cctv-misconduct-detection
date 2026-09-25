@@ -10,7 +10,7 @@ import sys
 
 import cv2
 
-from fight.movinet_detector import CONFIDENCE_MIN, STRIDE_FRAMES, TARGET_FPS, WINDOW_FRAMES, truncate_2dp, violence_classifier
+from app.actions.fight.movinet_detector import CONFIDENCE_MIN, STRIDE_FRAMES, TARGET_FPS, WINDOW_FRAMES, truncate_2dp, violence_classifier
 
 WINDOW_NAME = "Fight Detection - Playback"
 

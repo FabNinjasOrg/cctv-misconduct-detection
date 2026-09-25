@@ -12,7 +12,7 @@ LEFT_WRIST, RIGHT_WRIST = 9, 10                # keypoint indices used to score 
 OBJECT_CONFIDENCE_MIN = 0.6  # a small, blurry head crop makes the object detector guess a lot - ignore weak guesses
 REVIEW_LIMIT = 2             # how many highest-doubt-score events to save as evidence
 
-SPIT_FRAMES_DIR = "spit/evidence/single_frame"
+SPIT_FRAMES_DIR = "evidence/spit/single_frame"
 os.makedirs(SPIT_FRAMES_DIR, exist_ok=True)
 
 object_model = YOLO("models/yolo11n.pt")  # general object detector, checked near the head

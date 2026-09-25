@@ -1,4 +1,4 @@
-"""Entry point for the stream service: `python -m stream`.
+"""Entry point for the stream service: `python -m app.stream`.
 
 WHAT: starts one recorder per camera plus one analysis worker, then waits.
 WHY:  this is the process the `stream` container runs; everything else in the
@@ -8,7 +8,7 @@ HOW:  recorders and the worker each get a thread, the main thread does nothing
 
 The shape of it:
 
-    Recorder (1 per camera)  ->  stream/spool/  ->  Worker (1 total)
+    Recorder (1 per camera)  ->  spool/  ->  Worker (1 total)
     keeps ffmpeg running         finished .mp4      analyzes and saves evidence
 
 Recorders and the worker are deliberately independent. Recording must never
@@ -19,9 +19,9 @@ import logging
 import signal
 import threading
 
-from stream import config as config_module
-from stream.recorder import Recorder
-from stream.worker import Worker
+from app.stream import config as config_module
+from app.stream.recorder import Recorder
+from app.stream.worker import Worker
 
 
 def main():

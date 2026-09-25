@@ -3,11 +3,18 @@
 #   docker compose up -d --build
 #
 # Then: http://localhost:8000/docs
+#
+# This file stays at the project root even though the Dockerfile lives in
+# docker/, because the build context has to be the root (the image needs app/,
+# main.py and models/) and because `docker compose up` only finds a compose file
+# in the directory you run it from. Keeping it here is what makes the command
+# above a one-liner.
 
 services:
   detector:
     build:
       context: .
+      dockerfile: docker/Dockerfile
     image: cctv-detection:latest
     container_name: cctv-detection
     restart: unless-stopped
@@ -22,19 +29,15 @@ services:
       # The container's paths are the project's own paths, so what you send and
       # what you get back need no translation: filepath=uploaded_clips/x.mp4 is
       # ./uploaded_clips/x.mp4 here, and a returned final_frame of
-      # analyze_action/evidence/y.jpg is ./analyze_action/evidence/y.jpg here.
+      # evidence/detections/y.jpg is ./evidence/detections/y.jpg here.
       #
       # Mounting rather than baking these in also means rebuilding the image
       # never destroys saved evidence.
       - ./uploaded_clips:/app/uploaded_clips
-      - ./analyze_action/evidence:/app/analyze_action/evidence
-      - ./spit/evidence:/app/spit/evidence
-      - ./fight/evidence:/app/fight/evidence
-      - ./vandalism/evidence:/app/vandalism/evidence
-      - ./fall/evidence:/app/fall/evidence
+      - ./evidence:/app/evidence
       # Shared with the stream service: it records segments here, this service
       # reads them back by the same path when asked to analyze one.
-      - ./stream/spool:/app/stream/spool
+      - ./spool:/app/spool
 
     # Detection is CPU-bound and will happily eat every core. Uncomment and tune
     # once the throughput measurement is done, to leave the host usable.
@@ -56,10 +59,11 @@ services:
   stream:
     build:
       context: .
+      dockerfile: docker/Dockerfile
     image: cctv-detection:latest
     container_name: cctv-stream
     restart: unless-stopped
-    command: ["python", "-m", "stream"]
+    command: ["python", "-m", "app.stream"]
 
     # Nothing is worth recording until the detector can answer, and starting in
     # order keeps the first minute of logs free of connection errors.
@@ -73,11 +77,11 @@ services:
     volumes:
       # Camera config, read-only: the container never rewrites it.
       - ./stream.yaml:/app/stream.yaml:ro
-      - ./stream/spool:/app/stream/spool
-      - ./stream/evidence:/app/stream/evidence
-      # Read-only view of the detector's own evidence output, so a flagged frame
-      # can be copied into this camera's evidence folder.
-      - ./analyze_action/evidence:/app/analyze_action/evidence:ro
+      - ./spool:/app/spool
+      # Writes its own detections into evidence/live/, and reads back the frame
+      # the detector saved under evidence/detections/ to copy alongside them -
+      # one mount covers both.
+      - ./evidence:/app/evidence
 
     logging:
       driver: json-file

@@ -18,18 +18,19 @@
 
 # Runtime data - mounted from the host instead.
 uploaded_clips
-analyze_action/evidence
-fall/evidence
-fight/evidence
-spit/evidence
-vandalism/evidence
-stream/spool
-stream/evidence
+evidence
+spool
 
 # Packaging and docs - not needed inside the image.
-Dockerfile
+#
+# Note this excludes docker/Dockerfile and docker/DOCKER.md but NOT
+# docker/requirements.txt: the build COPYs that file in, so excluding the whole
+# docker/ folder would break the dependency install.
+docker/Dockerfile
+docker/DOCKER.md
 .dockerignore
 compose.yaml
-DOCKER.md
+requirements.txt
+README.md
 CLAUDE.md
-general.md
+docs

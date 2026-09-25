@@ -1,6 +1,10 @@
 .env
 __pycache__/
 *.pyc
+.DS_Store
+
+# Local editor/tool state, not part of the project.
+.claude/
 
 # ---------------------------------------------------------------------------
 # Runtime data: footage in, evidence out. Never committed.
@@ -21,21 +25,21 @@ __pycache__/
 uploaded_clips/*
 !uploaded_clips/.gitkeep
 
-# Evidence frames each detector saves out.
-analyze_action/evidence/*
-!analyze_action/evidence/.gitkeep
-spit/evidence/*
-!spit/evidence/.gitkeep
-fight/evidence/*
-!fight/evidence/.gitkeep
-vandalism/evidence/*
-!vandalism/evidence/.gitkeep
-fall/evidence/*
-!fall/evidence/.gitkeep
+# Everything the detectors save out.
+evidence/detections/*
+!evidence/detections/.gitkeep
+evidence/live/*
+!evidence/live/.gitkeep
+evidence/spit/*
+!evidence/spit/.gitkeep
+evidence/fight/*
+!evidence/fight/.gitkeep
+evidence/vandalism/*
+!evidence/vandalism/.gitkeep
+evidence/fall/*
+!evidence/fall/.gitkeep
 
-# Live stream service: recorded segments waiting to be analyzed, and the
-# detections kept from them (frames, clips, detections.jsonl).
-stream/spool/*
-!stream/spool/.gitkeep
-stream/evidence/*
-!stream/evidence/.gitkeep
+# Recorded camera segments waiting to be analyzed. Deleted automatically once
+# each one has been handled - this is a queue, not an archive.
+spool/*
+!spool/.gitkeep

@@ -43,10 +43,10 @@ import os
 import cv2
 import numpy as np
 
-from pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
-from spit.single_frame_detector import find_object_near_head
+from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
+from app.actions.spit.single_frame_detector import find_object_near_head
 
-# from motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
+# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 
 # COCO-17 keypoint indices, matching spit_detection.py's convention
 NOSE, L_EYE, R_EYE = 0, 1, 2
@@ -220,7 +220,7 @@ DECISION_THRESHOLD = 0.5   # confidence needed to call it "spitting detected"
 GAIT_PENALTY = 0.3         # confidence multiplier applied if the person looks like they're walking
 CONTACT_PENALTY = 0.3      # confidence multiplier applied if another person's body overlapped theirs during the bow
 
-ACTIVITY_FRAMES_DIR = "spit/evidence/kinematic"
+ACTIVITY_FRAMES_DIR = "evidence/spit/kinematic"
 os.makedirs(ACTIVITY_FRAMES_DIR, exist_ok=True)
 
 # Which keypoints connect to which, just for drawing the skeleton on evidence images

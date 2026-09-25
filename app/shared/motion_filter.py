@@ -8,7 +8,7 @@
 # only actually called from analyze_action/action_analyzer.py, which runs it once
 # per clip and shares the result across all four detectors instead of each one
 # re-running its own copy. Each detector file keeps a commented-out import of this
-# module at its own motion-gating call site (see e.g. spit/kinematic_detector.py)
+# module at its own motion-gating call site (see e.g. app/actions/spit/kinematic_detector.py)
 # documenting where per-detector gating used to happen / could be re-enabled later.
 
 import itertools

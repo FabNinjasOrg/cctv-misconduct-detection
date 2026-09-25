@@ -1,6 +1,6 @@
 """Records one camera's live stream to disk as a series of fixed-length files.
 
-WHAT: keeps an ffmpeg process running that writes stream/spool/<camera>/*.mp4,
+WHAT: keeps an ffmpeg process running that writes spool/<camera>/*.mp4,
       a new file every `segment_seconds`.
 WHY:  the detectors work on video files, not on a live stream, so the stream has
       to be chopped into files the analysis worker can pick up.

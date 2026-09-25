@@ -3,12 +3,12 @@ import os
 
 import cv2
 
-# from motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
-from fight.person_guard import SINGLE_PERSON_PENALTY, max_people_nearby
-from fight.vd_mil.movinet_classifier import MovinetViolenceClassifier
+# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
+from app.actions.fight.person_guard import SINGLE_PERSON_PENALTY, max_people_nearby
+from app.actions.fight.vd_mil.movinet_classifier import MovinetViolenceClassifier
 
-BACKBONE_WEIGHTS_DIR = "fight/vd_mil/movinet_weights"
-HEAD_WEIGHTS_PATH = "fight/vd_mil/model_20_state_dict.pt"  # CC BY-NC 4.0, internal/research use only - see fight/vd_mil/NOTICE.md
+BACKBONE_WEIGHTS_DIR = "models/movinet/backbone"
+HEAD_WEIGHTS_PATH = "models/movinet/model_20_state_dict.pt"  # CC BY-NC 4.0, internal/research use only - see models/movinet/NOTICE.md
 
 TARGET_FPS = 8.0        # the model was trained on clips sampled at this rate
 WINDOW_FRAMES = 8       # frames per classified clip
@@ -16,7 +16,7 @@ STRIDE_FRAMES = 4       # hop between consecutive windows
 CONFIDENCE_MIN = 0.5    # ignore low-confidence guesses
 TOP_FRAMES_LIMIT = 1    # only the single highest-confidence window gets saved as evidence
 
-FIGHT_MIL_FRAMES_DIR = "fight/evidence/movinet"
+FIGHT_MIL_FRAMES_DIR = "evidence/fight/movinet"
 os.makedirs(FIGHT_MIL_FRAMES_DIR, exist_ok=True)
 
 violence_classifier = MovinetViolenceClassifier(BACKBONE_WEIGHTS_DIR, HEAD_WEIGHTS_PATH)

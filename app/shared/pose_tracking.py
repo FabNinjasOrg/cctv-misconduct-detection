@@ -4,7 +4,7 @@ each person frame to frame.
 Spit, vandalism and fall all need exactly the same thing here - the same model,
 sampled at the same rate, with the same box-matching rule - and until this module
 existed each of them carried its own byte-identical copy of it. Running all three
-from analyze_action therefore meant putting every sampled frame through the same
+from the combined analyzer therefore meant putting every sampled frame through the same
 pose model three times to get the same answer back, which was most of the cost of
 a combined verdict. Now the pass happens once and the result is shared.
 

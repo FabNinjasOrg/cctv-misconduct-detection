@@ -4,13 +4,13 @@ import os
 from dotenv import load_dotenv
 from ultralytics import YOLO
 
-from spit.single_frame_detector import detect_spitting
-from fight.yolo_detector import detect_fighting
-from fight.movinet_detector import detect_fighting_mil
-from spit.kinematic_detector import detect_activity
-from vandalism.object_action_detector import detect_vandalism
-from fall.kinematic_detector import detect_fall
-from analyze_action.action_analyzer import analyze_action
+from app.actions.spit.single_frame_detector import detect_spitting
+from app.actions.fight.yolo_detector import detect_fighting
+from app.actions.fight.movinet_detector import detect_fighting_mil
+from app.actions.spit.kinematic_detector import detect_activity
+from app.actions.vandalism.object_action_detector import detect_vandalism
+from app.actions.fall.kinematic_detector import detect_fall
+from app.actions.analyzer import analyze_action
 
 load_dotenv()
 
@@ -70,8 +70,8 @@ async def detect_fight_yolo(filepath: str = Form(...)):
 
 @app.post("/fight/movinet")
 async def detect_fight_movinet(filepath: str = Form(...)):
-    """MoViNet-based fight detector (fight/vd_mil/), local/CV-only - no Gemini call.
-    Internal/research use only, see fight/vd_mil/NOTICE.md."""
+    """MoViNet-based fight detector (app/actions/fight/vd_mil/), local/CV-only - no Gemini call.
+    Internal/research use only, see models/movinet/NOTICE.md."""
     _require_file(filepath)
     return detect_fighting_mil(filepath, person_model)
 

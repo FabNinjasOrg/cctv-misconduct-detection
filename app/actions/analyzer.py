@@ -2,14 +2,14 @@ import os
 
 import cv2
 
-from fall.kinematic_detector import detect_fall
-from motion_filter import detect_motion, group_motion_segments
-from fight.movinet_detector import detect_fighting_mil
-from pose_tracking import track_clip
-from spit.kinematic_detector import detect_activity
-from vandalism.object_action_detector import detect_vandalism
+from app.actions.fall.kinematic_detector import detect_fall
+from app.shared.motion_filter import detect_motion, group_motion_segments
+from app.actions.fight.movinet_detector import detect_fighting_mil
+from app.shared.pose_tracking import track_clip
+from app.actions.spit.kinematic_detector import detect_activity
+from app.actions.vandalism.object_action_detector import detect_vandalism
 
-FINAL_FRAMES_DIR = "analyze_action/evidence"
+FINAL_FRAMES_DIR = "evidence/detections"
 os.makedirs(FINAL_FRAMES_DIR, exist_ok=True)
 
 BANNER_HEIGHT = 40

@@ -51,9 +51,9 @@ import numpy as np
 
 # Pose tracking lives in pose_tracking.py, shared with the spit and vandalism
 # detectors - all three ran the identical pass over the same frames.
-from pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
+from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
 
-# from motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
+# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 # note: fall used a more generous SEGMENT_PAD_SECONDS (1.5s vs spit/vandalism's ~0.6s) when this
 # ran its own gating - a person who faints/is knocked out stops generating any motion at all right
 # after impact, so the padding after the last motion tick had to be long enough on its own to
@@ -234,7 +234,7 @@ DISAPPEAR_EDGE_MARGIN_RATIO = 0.08  # if they vanished within this fraction of a
 W_FALL, W_ASPECT = 0.7, 0.3
 DECISION_THRESHOLD = 0.5
 
-FALL_FRAMES_DIR = "fall/evidence/kinematic"
+FALL_FRAMES_DIR = "evidence/fall/kinematic"
 os.makedirs(FALL_FRAMES_DIR, exist_ok=True)
 
 # Which keypoints connect to which, just for drawing the skeleton on evidence images
