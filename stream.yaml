@@ -56,6 +56,14 @@ output:
   evidence_dir: evidence/live_detections
   detections_log: evidence/live_detections/detections.json
 
-  # Keep the video the detection came from, next to the evidence frame. Costs
-  # disk, but a still frame alone is rarely enough to judge what happened.
-  keep_segment_on_detection: true
+  # Also keep the 10 seconds of video the detection came from, next to the
+  # evidence frame.
+  #
+  # Off: only the labelled image is saved. The clip is roughly four times the
+  # size of the frame (~1MB vs ~250KB), so on a camera running around the clock
+  # this is most of the disk the system uses.
+  #
+  # Turn it back on if a still ever proves too little to judge what happened -
+  # it is the difference between seeing someone on the ground and seeing how
+  # they got there.
+  keep_segment_on_detection: false
