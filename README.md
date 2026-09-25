@@ -13,6 +13,43 @@ There are two ways to use it, and most people end up using both:
 
 ---
 
+## What you need to run it
+
+Every number below was measured on this project, not estimated.
+
+| | Minimum | Recommended | Why |
+|---|---|---|---|
+| **Processor** | 4 cores | **8 cores** | This is the part that limits you. Analysis peaked at **379% CPU** — it uses about 4 cores flat out. |
+| **Memory (RAM)** | 4 GB | **8 GB** | The software itself is light: **532 MB** at peak. The rest is for your operating system and Docker. |
+| **Free disk space** | 10 GB | **20 GB** | The installed software is **2.8 GB**. The rest is headroom for saved evidence. |
+| **Operating system** | Anything that runs Docker | Windows, macOS or Linux | Nothing else is needed — Docker carries its own dependencies. |
+| **Network** | Same network as the camera | Wired | Cameras only stream to devices on their own network. |
+| **Graphics card** | Not required | NVIDIA, if you want full coverage | Optional. See below. |
+
+**The surprise is that memory barely matters.** The whole system runs in about half a gigabyte — the AI models are small (56 MB in total). It's **processor speed** that decides how much of your footage actually gets checked. If you're choosing a machine, spend on cores, not RAM.
+
+### Speed, and what it means in practice
+
+On an 8-core Apple M-series Mac, checking a **10-second clip takes about 40 seconds**.
+
+That's four times slower than real time, so the system checks a sample of your footage rather than all of it. You control the balance with one setting — see [How much footage gets checked](#how-much-footage-gets-checked-analyze_one_in) below. It's not a fault; it's the trade every system like this makes on a machine without a graphics card.
+
+**A graphics card removes the trade.** An NVIDIA GPU checks the same clip in a second or two, and full coverage of every second of footage becomes realistic. Worth it if you're running several cameras or genuinely can't miss anything. For one camera watching a quiet area, sampling is usually fine.
+
+### How many cameras
+
+One camera per machine at these speeds. Each extra camera divides the coverage you get, because they share the same processor. More cameras means either a graphics card or more machines.
+
+### How much disk it uses over time
+
+Small. Each saved detection is one image of roughly **150 KB**. Even at fifty detections a day that's under 3 GB a year. The temporary recording folder never exceeds about 20 MB — it clears itself as it goes.
+
+The caveat: **nothing deletes old evidence automatically**. It grows slowly, but it grows forever, so check on it occasionally.
+
+> **On Windows and macOS**, Docker Desktop caps how much memory it may use — the default is usually fine, but if the system won't start, raise it to 4 GB in Docker Desktop → Settings → Resources.
+
+---
+
 ## Quick start
 
 Four steps. You need your camera's **username** and its **IP address** — both are in the camera's phone app, usually under *Advanced Settings → Camera Account*.
