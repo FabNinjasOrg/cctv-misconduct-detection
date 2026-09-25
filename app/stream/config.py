@@ -89,7 +89,7 @@ def load(path: str = CONFIG_PATH) -> Config:
         timeout_seconds=int(analysis.get("timeout_seconds", 600)),
 
         evidence_dir=str(output.get("evidence_dir", "evidence/live_detections")),
-        detections_log=str(output.get("detections_log", "evidence/live_detections/detections.jsonl")),
+        detections_log=str(output.get("detections_log", "evidence/live_detections/detections.json")),
         keep_segment_on_detection=bool(output.get("keep_segment_on_detection", True)),
     )
 

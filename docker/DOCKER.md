@@ -53,18 +53,42 @@ POST /analyze-action  ->  detector service
     |  anything at or above min_confidence
     v
 evidence/live_detections/<camera>/   frame + clip
-evidence/live_detections/detections.jsonl
+evidence/live_detections/detections.json
 ```
 
-Each detection appends one line to `detections.jsonl`:
+`detections.json` is a single JSON array, newest entry last, one object per
+detection:
 
 ```json
-{"detected_at":"2026-09-24T07:20:30+00:00","camera":"cam-1",
- "segment":"cam-1_20260924-071830.mp4","action":"fall","confidence":0.704,
- "scores":{"spit":0.185,"vandalism":0.207,"fall":0.704,"fight":0.0},
- "evidence_frame":"evidence/live_detections/cam-1/..._fall_70pct.jpg",
- "evidence_clip":"evidence/live_detections/cam-1/..._fall_70pct.mp4"}
+[
+  {
+    "recorded_at": "2026-09-24T07:18:30+05:30",
+    "detected_at": "2026-09-24T07:20:30+05:30",
+    "camera": "cam-1",
+    "action": "fall",
+    "confidence": 0.704,
+    "confidence_percent": 70,
+    "evidence_image": "evidence/live_detections/cam-1/cam-1_20260924-071830_fall_70pct.jpg",
+    "evidence_clip": "evidence/live_detections/cam-1/cam-1_20260924-071830_fall_70pct.mp4",
+    "scores": {"spit": 0.185, "vandalism": 0.207, "fall": 0.704, "fight": 0.0},
+    "source_segment": "cam-1_20260924-071830.mp4"
+  }
+]
 ```
+
+**`recorded_at` is the one to use.** It is when the event happened, read from
+the recording's own filename. `detected_at` is when analysis finished, which on
+slow hardware or with a backlog can be minutes later.
+
+Timestamps carry the container's local UTC offset. Set `TZ` in `.env` (e.g.
+`TZ=Asia/Kolkata`) to get your own zone rather than UTC — it applies to the
+recorder's filenames too, so both stay consistent.
+
+The file is rewritten in full on each detection, via a temp file and an atomic
+rename, so a crash mid-write leaves the previous complete file rather than a
+truncated one. A file that cannot be parsed is moved aside to
+`detections.json.corrupt-<timestamp>` rather than overwritten — it is the only
+record of what was found.
 
 ### Keeping up
 

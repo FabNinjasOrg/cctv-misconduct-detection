@@ -20,13 +20,31 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime
 
 log = logging.getLogger(__name__)
+
+
+def _recorded_at(segment_stem: str) -> str:
+    """Turns a segment filename into the wall-clock time it was recorded.
+
+    The recorder names files `<camera>_YYYYMMDD-HHMMSS.mp4` (see recorder.py),
+    so the timestamp is already in the name and needs no extra bookkeeping.
+    Returns an ISO 8601 string with the local UTC offset, e.g.
+    2026-09-24T07:18:30+05:30 - set TZ in .env to control which zone that is.
+
+    Falls back to None if the name is not in the expected shape, which should
+    only happen for a file this program did not write."""
+    try:
+        stamp = datetime.strptime(segment_stem.rsplit("_", 1)[-1], "%Y%m%d-%H%M%S")
+    except (ValueError, IndexError):
+        return None
+    return stamp.astimezone().isoformat(timespec="seconds")
 
 # How long to sleep when there is nothing waiting. Short enough that a new
 # segment is picked up promptly, long enough not to spin the CPU doing nothing.
@@ -205,8 +223,8 @@ class Worker:
         a still rarely shows enough to judge what actually happened. Both are
         copied rather than moved, because the spool copy is about to be deleted.
 
-        Also appends one JSON line per detection to detections.jsonl, which is the
-        searchable record of what was found and when."""
+        Also adds one entry to detections.json, which is the searchable record of
+        what was found and when."""
         folder = os.path.join(self.config.evidence_dir, camera.name)
         os.makedirs(folder, exist_ok=True)
 
@@ -229,19 +247,27 @@ class Worker:
             shutil.copy2(segment_path, saved_clip)
 
         self._append_to_log({
-            "detected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            # When it happened, taken from the recording's own filename. This is
+            # the timestamp that matters - detected_at can be a minute or more
+            # later, because it is when analysis finished, not when the event was.
+            "recorded_at": _recorded_at(stem),
+            "detected_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+
             "camera": camera.name,
-            "segment": os.path.basename(segment_path),
             "action": action,
             "confidence": result["confidence"],
+            "confidence_percent": percent,
+
+            "evidence_image": saved_frame,
+            "evidence_clip": saved_clip,
+
             # every detector's score, not just the winner - useful when working
             # out why something was or wasn't flagged
             "scores": {
                 name: score["confidence"]
                 for name, score in (result.get("scores") or {}).items()
             },
-            "evidence_frame": saved_frame,
-            "evidence_clip": saved_clip,
+            "source_segment": os.path.basename(segment_path),
         })
 
         # Logged at WARNING so a detection stands out among the routine INFO
@@ -252,14 +278,59 @@ class Worker:
         )
 
     def _append_to_log(self, record: dict) -> None:
-        """Adds one line to detections.jsonl.
+        """Adds one detection to detections.json.
 
-        One JSON object per line (JSONL) rather than a single JSON array, so
-        appending never needs to read or rewrite the existing file - and the log
-        stays valid even if the process is killed mid-write."""
-        os.makedirs(os.path.dirname(self.config.detections_log) or ".", exist_ok=True)
-        with open(self.config.detections_log, "a") as f:
-            f.write(json.dumps(record) + "\n")
+        The file is a single JSON array, newest entry last, so it can be opened
+        and read as-is by a person or loaded in one line by anything else
+        (`json.load`, `jq`, a spreadsheet importer, a future dashboard).
+
+        That means rewriting the whole file each time, which is fine here:
+        detections are rare - a handful an hour at worst - and the rewrite costs
+        microseconds next to the tens of seconds of analysis that produced the
+        record. The write goes to a temporary file that is then renamed over the
+        original, because os.replace is atomic: a crash mid-write leaves the
+        previous complete file in place rather than a half-written one."""
+        path = self.config.detections_log
+        folder = os.path.dirname(path) or "."
+        os.makedirs(folder, exist_ok=True)
+
+        detections = self._read_log(path)
+        detections.append(record)
+
+        with tempfile.NamedTemporaryFile(
+            "w", dir=folder, prefix=".detections-", suffix=".tmp", delete=False
+        ) as f:
+            json.dump(detections, f, indent=2)
+            f.write("\n")
+            temp_path = f.name
+
+        os.replace(temp_path, path)
+
+    @staticmethod
+    def _read_log(path: str) -> list:
+        """Loads the existing detections, or starts a new list.
+
+        A damaged file is moved aside rather than overwritten - it is the only
+        record of what was found, so losing it silently to recover from a parse
+        error would be the worse failure."""
+        try:
+            with open(path) as f:
+                detections = json.load(f)
+        except FileNotFoundError:
+            return []
+        except (json.JSONDecodeError, OSError) as e:
+            salvage = f"{path}.corrupt-{int(time.time())}"
+            log.error("%s is unreadable (%s); moving it to %s and starting a new log",
+                      path, e, salvage)
+            try:
+                os.replace(path, salvage)
+            except OSError:
+                pass
+            return []
+
+        # Anything other than a list means the file is not ours; treat it the
+        # same way rather than trying to append to it.
+        return detections if isinstance(detections, list) else []
 
     # ------------------------------------------------------------------
     # The loop

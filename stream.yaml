@@ -54,7 +54,7 @@ output:
   # Saved evidence: one folder per camera, plus an append-only log of every
   # detection.
   evidence_dir: evidence/live_detections
-  detections_log: evidence/live_detections/detections.jsonl
+  detections_log: evidence/live_detections/detections.json
 
   # Keep the video the detection came from, next to the evidence frame. Costs
   # disk, but a still frame alone is rarely enough to judge what happened.

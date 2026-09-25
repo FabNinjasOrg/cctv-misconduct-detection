@@ -64,7 +64,7 @@ That's everything. It's now recording and checking. The first run takes a few mi
 
 ---
 
-## Checking a video yourself
+## Checking a video manually
 
 Open **<http://localhost:8000/docs>**. You get a page listing everything the system can do, and you can run any of it there without touching a terminal.
 
@@ -118,10 +118,48 @@ Three things here are yours: **`evidence/`**, **`stream.yaml`** and **`.env`**. 
 
 | Folder | What's in it |
 |---|---|
-| **`live_detections/`** | What the cameras caught. One folder per camera, each holding the picture and the video clip it came from, plus `detections.jsonl` — a running list of every detection with its time and score. |
+| **`live_detections/`** | What the cameras caught. A folder per camera holding the picture and the video clip it came from, plus **`detections.json`** — the running log of everything found. |
 | **`manual_detections/`** | What the videos you uploaded caught. One labelled picture per video. |
 
 **Inside `app/`**, if you ever need it: `actions/` holds the four detectors, `stream/` does the camera recording, `shared/` is the common code between them.
+
+---
+
+## The detection log
+
+`evidence/live_detections/detections.json` is the timestamped record of everything the cameras found. It's a plain JSON array, newest entry last, so you can open it in any editor or load it straight into a script, spreadsheet or dashboard.
+
+```json
+[
+  {
+    "recorded_at": "2026-09-24T07:18:30+05:30",
+    "detected_at": "2026-09-24T07:20:30+05:30",
+    "camera": "cam-1",
+    "action": "fall",
+    "confidence": 0.704,
+    "confidence_percent": 70,
+    "evidence_image": "evidence/live_detections/cam-1/cam-1_20260924-071830_fall_70pct.jpg",
+    "evidence_clip": "evidence/live_detections/cam-1/cam-1_20260924-071830_fall_70pct.mp4",
+    "scores": { "spit": 0.185, "vandalism": 0.207, "fall": 0.704, "fight": 0.0 },
+    "source_segment": "cam-1_20260924-071830.mp4"
+  }
+]
+```
+
+| Field | What it tells you |
+|---|---|
+| **`recorded_at`** | **When it actually happened.** This is the one you want. |
+| `detected_at` | When the computer finished checking. Can be a minute or more later — that gap is analysis time, not a second incident. |
+| `evidence_image` | The labelled picture. Open this to see what it caught. |
+| `evidence_clip` | The ten seconds of video it came from. A still often isn't enough to judge. |
+| `confidence` | How sure it is, 0 to 1. Anything below `min_confidence` in `stream.yaml` never gets here. |
+| `scores` | What *all four* detectors thought, not just the winner. Useful when a result surprises you. |
+
+**Set `TZ` in `.env`** (e.g. `TZ=Asia/Kolkata`) or these times come out in UTC. It applies to the recorded filenames too, so everything stays consistent.
+
+The file is never appended to blindly: it's rewritten through a temporary file and renamed into place, so pulling the plug mid-write leaves the last good version rather than a broken one. If it ever does become unreadable it's moved aside as `detections.json.corrupt-<timestamp>` instead of being overwritten — it's the only record you have.
+
+Uploaded videos don't write to this log; their results come back in the API response and land in `manual_detections/`.
 
 ---
 

@@ -26,7 +26,12 @@ app/
   shared/            motion_filter, pose_tracking, gemini_review
 
 evidence/            results only - exactly two folders, both user-facing
-  live_detections/   per-camera output from the stream service + detections.jsonl
+  live_detections/   per-camera frames and clips, plus detections.json - the
+                     timestamped log, a single JSON array rewritten atomically
+                     on each detection (temp file + os.replace). recorded_at is
+                     parsed from the segment filename and is when the event
+                     happened; detected_at is when analysis finished, which can
+                     be a minute later. TZ in .env controls both.
   manual_detections/ one combined verdict frame per clip analyzed by hand
 
 uploaded_clips/      received videos
