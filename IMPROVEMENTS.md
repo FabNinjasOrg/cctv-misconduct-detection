@@ -81,7 +81,7 @@ Ordered by value for effort. "Code?" means whether it needs development work.
 |---|---|---|---|---|
 | 0 | **Build a way to measure** | Yes | Small | Enables everything else |
 | 1 | **Move the camera** | No | None | Very high |
-| 2 | **Usable-pose gate** | Yes | Small | Very high |
+| 2 | ~~**Usable-pose gate**~~ — **DONE** | Yes | Small | Very high |
 | 3 | **Per-camera detector choice** | Yes | Small | High |
 | 4 | **Cooldown between alerts** | Yes | Tiny | Medium |
 | 5 | **Raise the confidence threshold** | No | None | Low, blunt |
@@ -110,7 +110,10 @@ Mount it high, looking across the room, so whole people are visible including le
 
 This fixes all three broken detectors at once, costs nothing, and takes ten minutes. **Do this before writing any code.**
 
-### 2. Usable-pose gate — small job, would have stopped all six
+### 2. Usable-pose gate — DONE
+
+*Implemented in `app/shared/pose_tracking.py`. Results at the bottom of this file.*
+
 
 Refuse to judge a person when the maths can't work. Skip them if:
 
@@ -189,3 +192,46 @@ Those four are self-contained, need no new hardware, and between them should tak
 **After that**, in rough order of value: hold-for-N-seconds (8), zones (6), overlapping chunks (7), then training on your own footage (9) once enough has been collected.
 
 **The one-line version:** move the camera first, build a way to measure second, and only then change the code.
+
+---
+
+## Done so far
+
+### Usable-pose gate (option 2)
+
+Lives in `app/shared/pose_tracking.py`, shared by spit, vandalism and fall. A person is skipped when we cannot measure them:
+
+- **their hips aren't visible** — no trunk angle, no real body length
+- **their box is over 75% of the frame height** — too close for the box to be a useful yardstick
+
+They're dropped *before* tracking rather than after, because a track built from unusable frames would still get scored and the detectors have no way to know its numbers are meaningless.
+
+Three decisions worth remembering:
+
+- **Not gated on box shape.** Upright-to-horizontal *is* the fall signal, so rejecting wide boxes would throw away the thing we're looking for.
+- **One visible hip is enough.** Requiring both would reject anyone standing side-on.
+- **Height only, never width.** A fallen person's box is short and wide.
+
+It prints one line whenever it drops anything, so skipped footage never looks the same as quiet footage:
+
+```
+pose gate skipped 144 detection(s): 4 hips not visible, 140 too close to camera
+```
+
+**Results:**
+
+| Check | Outcome |
+|---|---|
+| Known events still detected | **12 of 12**, across all four actions, confidences unchanged |
+| The three false-positive frames | **All rejected**, by the hips rule |
+
+**A lesson worth keeping.** The height limit was first set at 60%, which quietly destroyed `spit-1.mp4` — a real detection whose subject measures 62% with hips plainly visible. Measuring showed which rule actually does the work:
+
+| | spit-1 (real event) | desk camera (false alarm) |
+|---|---|---|
+| Hips visible | **12 of 12 frames** | **1 of 13 frames** |
+| Box height | 0.62 | 0.78 |
+
+The hips check separates them cleanly; the height check is a loose backstop. Had the regression not been run, the gate would have shipped silently deleting real detections — which is the argument for building the measuring script (option 0) before any further tuning.
+
+**To adjust it**, the settings are at the top of `app/shared/pose_tracking.py`: `REQUIRE_VISIBLE_HIPS` and `MAX_BOX_HEIGHT_FRACTION`. Loosen them if real events start being missed; the log line tells you which rule is firing.
