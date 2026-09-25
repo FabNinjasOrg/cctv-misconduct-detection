@@ -1,0 +1,41 @@
+.env
+__pycache__/
+*.pyc
+
+# ---------------------------------------------------------------------------
+# Runtime data: footage in, evidence out. Never committed.
+#
+# The pattern is `folder/*` plus `!folder/.gitkeep`, not plain `folder/`, and
+# the difference matters: `folder/` tells git to ignore the directory itself,
+# so git never looks inside it and the `!` exception below can never match.
+# `folder/*` ignores the *contents* instead, which leaves git free to see the
+# .gitkeep and track it.
+#
+# Why keep the empty folders at all: compose.yaml bind-mounts every one of
+# these into the containers. A folder that doesn't exist on a fresh clone gets
+# created by Docker as root, which then can't be written to from the host.
+# Shipping them empty avoids that entirely.
+# ---------------------------------------------------------------------------
+
+# Clips uploaded through /upload-clip, and the test clips analyzed by hand.
+uploaded_clips/*
+!uploaded_clips/.gitkeep
+
+# Evidence frames each detector saves out.
+analyze_action/evidence/*
+!analyze_action/evidence/.gitkeep
+spit/evidence/*
+!spit/evidence/.gitkeep
+fight/evidence/*
+!fight/evidence/.gitkeep
+vandalism/evidence/*
+!vandalism/evidence/.gitkeep
+fall/evidence/*
+!fall/evidence/.gitkeep
+
+# Live stream service: recorded segments waiting to be analyzed, and the
+# detections kept from them (frames, clips, detections.jsonl).
+stream/spool/*
+!stream/spool/.gitkeep
+stream/evidence/*
+!stream/evidence/.gitkeep

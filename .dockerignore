@@ -1,0 +1,35 @@
+# Keeps the image lean and free of secrets.
+#
+# Clips and evidence are deliberately excluded and bind-mounted instead (see
+# compose.yaml), so the image stays small and a fresh install starts empty
+# rather than shipping with our test footage inside it.
+
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+.claude
+**/__pycache__
+*.pyc
+
+# Secrets are never baked into an image - compose passes them in at run time.
+.env
+.env.example
+
+# Runtime data - mounted from the host instead.
+uploaded_clips
+analyze_action/evidence
+fall/evidence
+fight/evidence
+spit/evidence
+vandalism/evidence
+stream/spool
+stream/evidence
+
+# Packaging and docs - not needed inside the image.
+Dockerfile
+.dockerignore
+compose.yaml
+DOCKER.md
+CLAUDE.md
+general.md

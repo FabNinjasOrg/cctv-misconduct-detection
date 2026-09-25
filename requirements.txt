@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+opencv-python
+numpy
+ultralytics
+torch
+torchvision
+pillow
+python-dotenv
+google-genai  # Gemini video understanding - shared final-judge step in gemini_review.py, used by fight_detection.py and spit_detection.py
+git+https://github.com/roggerfq/MoViNet-pytorch.git  # MoViNet-A0 backbone (MIT) for fight_detection_mil.py; see vd_mil/NOTICE.md for the classifier checkpoint's CC BY-NC 4.0 license

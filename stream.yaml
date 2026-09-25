@@ -1,0 +1,61 @@
+# The one place a camera is configured.
+#
+# Set the URL below, then:  docker compose up -d
+#
+# Passwords: prefer ${VAR} here and put the real value in .env, so this file can
+# be committed and shared without leaking credentials. Anything of the form
+# ${NAME} is substituted from the environment when the config loads.
+
+cameras:
+  - name: cam-1
+    url: rtsp://admin:${CAM1_PASSWORD}@192.168.29.12:554/stream1
+
+    # Example of a second camera - each one records and is analyzed independently.
+    # - name: back-door
+    #   url: rtsp://admin:${CAM2_PASSWORD}@192.168.1.65:554/Streaming/Channels/101
+
+
+capture:
+  # How long each recorded chunk is. The detectors reason over seconds of motion
+  # (a held bow, a trunk angle flipping, a sliding window of frames), so chunks
+  # much shorter than this start cutting events in half.
+  segment_seconds: 10
+
+  # Where ffmpeg drops finished chunks, waiting to be analyzed.
+  spool_dir: stream/spool
+
+
+analysis:
+  # The detection API. Inside docker compose the API is reachable by its service
+  # name; running `python -m stream` on the host instead, use
+  # http://localhost:8000/analyze-action
+  api_url: http://detector:8000/analyze-action
+
+  # Analyze one segment in every N. This is the main lever if detection cannot
+  # keep up with the camera in real time: 1 analyzes everything, 3 analyzes ~20
+  # seconds out of every minute. Measure first - a 6s clip took ~25s to analyze
+  # on an 8-core Mac, so 1 is optimistic on modest hardware.
+  analyze_one_in: 1
+
+  # If analysis falls behind by more than this many waiting segments, the oldest
+  # are dropped rather than queued. Without a cap the spool grows until the disk
+  # fills, and the alerts it eventually produces are minutes stale anyway.
+  max_backlog_segments: 10
+
+  # Confidence at or above which a detection is worth keeping evidence for.
+  # Matches the detectors' own threshold.
+  min_confidence: 0.5
+
+  # Seconds to wait for one analysis call before giving up on that segment.
+  timeout_seconds: 600
+
+
+output:
+  # Saved evidence: one folder per camera, plus an append-only log of every
+  # detection.
+  evidence_dir: stream/evidence
+  detections_log: stream/evidence/detections.jsonl
+
+  # Keep the video the detection came from, next to the evidence frame. Costs
+  # disk, but a still frame alone is rarely enough to judge what happened.
+  keep_segment_on_detection: true

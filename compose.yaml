@@ -1,0 +1,86 @@
+# The one command:
+#
+#   docker compose up -d --build
+#
+# Then: http://localhost:8000/docs
+
+services:
+  detector:
+    build:
+      context: .
+    image: cctv-detection:latest
+    container_name: cctv-detection
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    volumes:
+      # The container's paths are the project's own paths, so what you send and
+      # what you get back need no translation: filepath=uploaded_clips/x.mp4 is
+      # ./uploaded_clips/x.mp4 here, and a returned final_frame of
+      # analyze_action/evidence/y.jpg is ./analyze_action/evidence/y.jpg here.
+      #
+      # Mounting rather than baking these in also means rebuilding the image
+      # never destroys saved evidence.
+      - ./uploaded_clips:/app/uploaded_clips
+      - ./analyze_action/evidence:/app/analyze_action/evidence
+      - ./spit/evidence:/app/spit/evidence
+      - ./fight/evidence:/app/fight/evidence
+      - ./vandalism/evidence:/app/vandalism/evidence
+      - ./fall/evidence:/app/fall/evidence
+      # Shared with the stream service: it records segments here, this service
+      # reads them back by the same path when asked to analyze one.
+      - ./stream/spool:/app/stream/spool
+
+    # Detection is CPU-bound and will happily eat every core. Uncomment and tune
+    # once the throughput measurement is done, to leave the host usable.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "4.0"
+    #       memory: 6g
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Records the cameras and feeds each finished segment to the detector above.
+  # Same image, different command - it needs ffmpeg and the stream package, not
+  # the models, and loading a second copy of those would double the memory.
+  stream:
+    build:
+      context: .
+    image: cctv-detection:latest
+    container_name: cctv-stream
+    restart: unless-stopped
+    command: ["python", "-m", "stream"]
+
+    # Nothing is worth recording until the detector can answer, and starting in
+    # order keeps the first minute of logs free of connection errors.
+    depends_on:
+      detector:
+        condition: service_healthy
+
+    env_file:
+      - .env
+
+    volumes:
+      # Camera config, read-only: the container never rewrites it.
+      - ./stream.yaml:/app/stream.yaml:ro
+      - ./stream/spool:/app/stream/spool
+      - ./stream/evidence:/app/stream/evidence
+      # Read-only view of the detector's own evidence output, so a flagged frame
+      # can be copied into this camera's evidence folder.
+      - ./analyze_action/evidence:/app/analyze_action/evidence:ro
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
