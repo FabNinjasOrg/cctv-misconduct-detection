@@ -1,75 +1,49 @@
 # CCTV Detection
 
-Watches CCTV video and flags four things: **spitting, fighting, vandalism, falls.**
+This watches CCTV video and tells you when something happens — someone
+**spitting**, a **fight**, **vandalism**, or a **fall**.
 
-You can use it two ways:
+There are two ways to use it. You can point it at a camera and leave it running,
+and it will keep watching on its own. Or you can hand it a video file and ask
+what's in it. Most people end up doing both: the camera for everyday monitoring,
+the file upload for checking an incident someone told you about.
 
-- **Live** — point it at a camera, it records and checks around the clock.
-- **By hand** — upload a video file and get an answer back.
-
----
-
-## 1. What's in each folder
-
-Only three of these are yours to open day to day. They're the first three.
-
-| Folder / file | What's inside |
-|---|---|
-| **`evidence/`** | **Everything it caught.** A picture of the moment, plus the video clip. Start here. |
-| **`uploaded_clips/`** | Videos you gave it to check. |
-| **`stream.yaml`** | **Your camera settings** — address, how often to check. You edit this. |
-| `.env` | Your camera password. You edit this once. |
-| `main.py` | The web API. |
-| `app/` | All the code. |
-| `models/` | The AI brain files. Don't touch. |
-| `docker/` | Build/packaging files. Don't touch. |
-| `spool/` | Scratch space while recording. Empties itself. |
-| `docs/` | Design notes. |
-
-### Inside `evidence/`
-
-Two folders — one per way of using it.
-
-| Folder | What's inside |
-|---|---|
-| **`live_detections/`** | **What the cameras caught.** One folder per camera: picture + video clip, plus `detections.jsonl`, the running list of everything found. |
-| **`manual_detections/`** | **What the videos you uploaded caught.** One picture per video, labelled `Fight 99%`. |
-
-And inside `manual_detections/`, one folder per action — `spit/`, `fight/`,
-`vandalism/`, `fall/`. That's each detector's own rough working-out, for
-digging into *why* something got flagged. You can ignore these day to day.
-
-### Inside `app/`
-
-| Folder | What's inside |
-|---|---|
-| `app/actions/` | The four detectors: `spit/`, `fight/`, `vandalism/`, `fall/` — plus `analyzer.py`, which runs all four and picks the winner. |
-| `app/stream/` | Talks to the cameras and records them. |
-| `app/shared/` | Helper code used by all the detectors. |
+When it finds something, it saves a picture of the moment with a box drawn
+around the person and a label like `Fight 99%`. That picture is the point of the
+whole thing — everything else here exists to produce it.
 
 ---
 
-## 2. Set it up (once)
+## Getting set up
 
-**Step 1 — make your settings file**
+You need two pieces of information from your camera: its **username** and its
+**address on your network**. Both are in the camera's phone app, usually under
+something like *Advanced Settings → Camera Account*.
+
+A word of warning about the username, because this is where almost everyone gets
+stuck: on TP-Link Tapo cameras it is a name **you** chose when you set the camera
+up, and it is usually *not* `admin`. If the logs later say `401 Unauthorized`,
+this is nearly always why.
+
+**First, make your settings file.** There's a template ready to copy:
 
 ```bash
 cp .env.example .env
 ```
 
-**Step 2 — put your camera password in `.env`**
-
-Open `.env`, find this line, type the password after the `=`:
+**Then put your camera password in `.env`.** Open it, find the `CAM1_PASSWORD`
+line, and type the password after the `=`:
 
 ```
 CAM1_PASSWORD=your-camera-password-here
 ```
 
-No quotes. Special characters like `@` are fine — leave them as they are.
+Don't put quotes around it. If your password has awkward characters like `@` or
+`:` in it, leave them exactly as they are — the code handles the escaping for
+you.
 
-**Step 3 — put your camera address in `stream.yaml`**
-
-Open `stream.yaml`, line 11:
+**Then put your camera's address in `stream.yaml`.** Line 11 is the one you
+want:
 
 ```yaml
 cameras:
@@ -77,48 +51,47 @@ cameras:
     url: rtsp://USERNAME:${CAM1_PASSWORD}@CAMERA-IP:554/stream1
 ```
 
-Change two things:
-
-- `USERNAME` → the camera's login name
-- `CAMERA-IP` → the camera's address on your network, e.g. `192.168.1.64`
-
-Leave `${CAM1_PASSWORD}` alone — it picks the password up from `.env` for you.
-
-> **Where do I find these?** In your camera's phone app, usually under
-> Advanced Settings → Camera Account. On TP-Link Tapo the username is one you
-> chose yourself — it is usually **not** `admin`.
+Replace `USERNAME` with the camera's login name and `CAMERA-IP` with its address
+on your network — something like `192.168.1.64`. Leave `${CAM1_PASSWORD}` alone;
+it reaches into `.env` and fetches the password for you, which is what keeps the
+real password out of this file.
 
 ---
 
-## 3. Start it
+## Starting it
 
 ```bash
 docker compose up -d --build
 ```
 
-That's it. It is now recording and checking.
+That's the whole thing. It's now recording your camera and checking every clip
+as it goes. The first run takes a few minutes because it has to build; after
+that it's quick.
 
-Anything it finds appears in **`evidence/live_detections/`**.
+Anything it finds shows up in **`evidence/live_detections/`**.
 
-### Other commands
+A few other commands worth knowing:
 
 ```bash
-docker compose logs -f          # watch what it's doing right now
+docker compose logs -f          # see what it's doing right now
 docker compose down             # stop it
-docker compose restart stream   # reload after editing stream.yaml
+docker compose restart stream   # pick up changes after editing stream.yaml
 ```
 
 ---
 
-## 4. Check one video by hand
+## Checking a video yourself
 
-Open **<http://localhost:8000/docs>** in your browser.
+Open **<http://localhost:8000/docs>** in your browser. You'll get a page listing
+everything the system can do, and you can run any of it right there without
+touching a terminal.
 
-1. `POST /upload-clip` → **Try it out** → pick your video → **Execute**.
-   It replies with a path like `uploaded_clips/20260925_141500_myvideo.mp4`.
-2. `POST /analyze-action` → **Try it out** → paste that path in → **Execute**.
+It's a two-step job. First, `POST /upload-clip` → **Try it out** → choose your
+video → **Execute**. It hands back a path, something like
+`uploaded_clips/20260925_141500_myvideo.mp4`.
 
-You get back the verdict:
+Then `POST /analyze-action` → **Try it out** → paste that path into the
+`filepath` box → **Execute**. After a minute or so you get the verdict:
 
 ```json
 {
@@ -129,33 +102,83 @@ You get back the verdict:
 }
 ```
 
-Open that `final_frame` file to see the moment, boxed and labelled.
+Open that `final_frame` file and you'll see the moment it caught, boxed and
+labelled.
+
+`/analyze-action` runs all four detectors and gives you the single strongest
+answer, which is almost always what you want. The other endpoints on that page
+run one detector on its own — handy if you're investigating why something was or
+wasn't flagged, but not the everyday route.
 
 ---
 
-## 5. If it's not working
+## Where everything lives
 
-| What you see | What it usually means |
+Three things here are yours. The rest you can leave alone.
+
+**`evidence/`** is where the results go, and it has two folders:
+
+- **`live_detections/`** — what the cameras caught. One folder per camera, each
+  holding the picture and the video clip it came from, plus `detections.jsonl`,
+  a running list of every detection with its time and score.
+- **`manual_detections/`** — what the videos you uploaded caught. One labelled
+  picture per video.
+
+**`uploaded_clips/`** holds the videos you've given it to check.
+
+**`stream.yaml`** is your camera settings, and **`.env`** is your camera
+password. These two are the only files you normally edit.
+
+Everything else is machinery:
+
+| | |
 |---|---|
-| `401 Unauthorized` in the logs | Wrong username or password. The username is the tricky one — check the camera app. |
-| `Connection refused` / `timed out` | Wrong IP, or the camera is on a different network from this computer. |
-| Nothing in `evidence/live_detections/` | Normal if nothing happened. Run `docker compose logs -f` to confirm it's recording. |
-| "not keeping up in real time" warning | This computer is too slow for every-segment checking. In `stream.yaml`, set `analyze_one_in: 3`. |
+| `main.py` | The web API — the thing your browser talks to. |
+| `app/` | All the code. `actions/` holds the four detectors, `stream/` does the camera recording, `shared/` is the common bits. |
+| `models/` | The trained AI files the detectors use. |
+| `docker/` | Build and packaging files. |
+| `debug/` | Each detector's rough working-out. Appears on its own when there's something to save; safe to delete any time. |
+| `spool/` | Scratch space while recording. Empties itself. |
+| `docs/` | Design notes. |
 
 ---
 
-## Running without Docker
+## When something's wrong
+
+**`401 Unauthorized` in the logs.** The username or password is wrong. Start with
+the username — it's usually not `admin`, whatever you might expect.
+
+**`Connection refused`, or it just times out.** Either the IP address is wrong,
+or the camera is on a different network from this computer. A camera at another
+site won't be reachable just because you know its address; the two networks have
+to be genuinely connected.
+
+**Nothing is appearing in `evidence/live_detections/`.** That's normal if nothing
+has actually happened. Run `docker compose logs -f` and you should see it
+recording and checking each clip. If it's working, you'll see lines going past.
+
+**A warning about "not keeping up in real time".** This computer isn't fast
+enough to check every single clip. Open `stream.yaml` and set `analyze_one_in: 3`
+— it'll check a sample instead, roughly twenty seconds out of every minute,
+which is usually plenty.
+
+---
+
+## Running it without Docker
+
+If you'd rather run it directly:
 
 ```bash
 pip install -r requirements.txt
-uvicorn main:app --reload           # http://127.0.0.1:8000/docs
-python -m app.stream                # the camera recorder
+uvicorn main:app --reload     # the API, at http://127.0.0.1:8000/docs
+python -m app.stream          # the camera recorder
 ```
 
-Run these **from this folder** — the code looks for `models/` and `evidence/`
-relative to it.
+Run these from this folder — the code looks for `models/` and `evidence/`
+relative to where you started it.
 
-Watch one video play back with the detection drawn on top:
+You can also watch a video play back with the detection drawn on top as it goes,
+which is the best way to get a feel for what the detectors actually see:
 
 ```bash
 python3 -m app.actions.spit.playback      uploaded_clips/your-clip.mp4
@@ -166,10 +189,22 @@ python3 -m app.actions.fall.playback      uploaded_clips/your-clip.mp4
 
 ---
 
-## Two things to know before selling this
+## Before you sell this to anyone
 
-- The fight model's weights (`models/movinet/`) are **CC BY-NC 4.0 —
-  non-commercial only.** See `models/movinet/NOTICE.md`.
-- Ultralytics YOLO is **AGPL-3.0**, which has its own conditions.
+Two licensing problems worth sorting out early, because both are easier to fix
+now than after a customer is using it:
 
-More detail: `docker/DOCKER.md` (deployment), `docs/general.md` (design notes).
+- The fight detector's trained weights in `models/movinet/` are **CC BY-NC 4.0**,
+  which means **non-commercial use only**. They're baked into the Docker image,
+  so as things stand the image can't be sold. `models/movinet/NOTICE.md` has the
+  details.
+- **Ultralytics YOLO is AGPL-3.0**, which comes with real obligations if you
+  build a product on it. Worth a proper look.
+
+One operational thing too: nothing cleans up old evidence. Running a camera
+around the clock, those folders will grow until the disk fills.
+
+---
+
+For deployment details and the tuning knobs, see `docker/DOCKER.md`. For notes
+on how the detection pipeline is designed, see `docs/general.md`.

@@ -220,8 +220,7 @@ DECISION_THRESHOLD = 0.5   # confidence needed to call it "spitting detected"
 GAIT_PENALTY = 0.3         # confidence multiplier applied if the person looks like they're walking
 CONTACT_PENALTY = 0.3      # confidence multiplier applied if another person's body overlapped theirs during the bow
 
-ACTIVITY_FRAMES_DIR = "evidence/manual_detections/spit/kinematic"
-os.makedirs(ACTIVITY_FRAMES_DIR, exist_ok=True)
+ACTIVITY_FRAMES_DIR = "debug/spit/kinematic"
 
 # Which keypoints connect to which, just for drawing the skeleton on evidence images
 SKELETON_EDGES = [
@@ -977,6 +976,7 @@ def save_evidence_frame(filepath: str, candidate: dict) -> dict:
         label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
         cv2.putText(outlined, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+        os.makedirs(ACTIVITY_FRAMES_DIR, exist_ok=True)  # only when there is something to save
         frame_path = os.path.join(ACTIVITY_FRAMES_DIR, f"spit_track{candidate['track_id']}_t{burst['t']}.jpg")
         cv2.imwrite(frame_path, outlined)
         result["frames"].append({"t": burst["t"], "frame_path": frame_path})

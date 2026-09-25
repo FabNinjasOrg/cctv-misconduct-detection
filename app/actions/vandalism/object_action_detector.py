@@ -114,8 +114,7 @@ SELF_DIRECTED_PENALTY = 0.35      # same discount factor as CONTACT_PENALTY - th
 W_STRIKE, W_TOOL = 0.65, 0.35
 DECISION_THRESHOLD = 0.5
 
-VANDALISM_FRAMES_DIR = "evidence/manual_detections/vandalism/object_action"
-os.makedirs(VANDALISM_FRAMES_DIR, exist_ok=True)
+VANDALISM_FRAMES_DIR = "debug/vandalism/object_action"
 
 object_model = YOLO("models/yolo11n.pt")  # general object detector, checked near the swinging hand
 
@@ -437,6 +436,7 @@ def save_evidence_frame(filepath: str, candidate: dict) -> dict:
     label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(outlined, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+    os.makedirs(VANDALISM_FRAMES_DIR, exist_ok=True)  # only when there is something to save
     frame_path = os.path.join(VANDALISM_FRAMES_DIR, f"vandalism_track{candidate['track_id']}_t{signals['t_peak']}.jpg")
     cv2.imwrite(frame_path, outlined)
     result["frame_path"] = frame_path

@@ -234,8 +234,7 @@ DISAPPEAR_EDGE_MARGIN_RATIO = 0.08  # if they vanished within this fraction of a
 W_FALL, W_ASPECT = 0.7, 0.3
 DECISION_THRESHOLD = 0.5
 
-FALL_FRAMES_DIR = "evidence/manual_detections/fall/kinematic"
-os.makedirs(FALL_FRAMES_DIR, exist_ok=True)
+FALL_FRAMES_DIR = "debug/fall/kinematic"
 
 # Which keypoints connect to which, just for drawing the skeleton on evidence images
 SKELETON_EDGES = [
@@ -715,6 +714,7 @@ def save_evidence_frame(filepath: str, candidate: dict) -> dict:
     label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(outlined, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+    os.makedirs(FALL_FRAMES_DIR, exist_ok=True)  # only when there is something to save
     frame_path = os.path.join(FALL_FRAMES_DIR, f"fall_track{candidate['track_id']}_t{signals['t']}.jpg")
     cv2.imwrite(frame_path, outlined)
     result["frame_path"] = frame_path

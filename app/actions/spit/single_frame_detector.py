@@ -12,8 +12,7 @@ LEFT_WRIST, RIGHT_WRIST = 9, 10                # keypoint indices used to score 
 OBJECT_CONFIDENCE_MIN = 0.6  # a small, blurry head crop makes the object detector guess a lot - ignore weak guesses
 REVIEW_LIMIT = 2             # how many highest-doubt-score events to save as evidence
 
-SPIT_FRAMES_DIR = "evidence/manual_detections/spit/single_frame"
-os.makedirs(SPIT_FRAMES_DIR, exist_ok=True)
+SPIT_FRAMES_DIR = "debug/spit/single_frame"
 
 object_model = YOLO("models/yolo11n.pt")  # general object detector, checked near the head
 
@@ -184,6 +183,7 @@ def save_review_frame(filepath: str, event: dict) -> str:
     label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(outlined_frame, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+    os.makedirs(SPIT_FRAMES_DIR, exist_ok=True)  # only when there is something to save
     review_path = os.path.join(SPIT_FRAMES_DIR, f"t{event['t']}.jpg")
     cv2.imwrite(review_path, outlined_frame)
     return review_path

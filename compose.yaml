@@ -35,6 +35,10 @@ services:
       # never destroys saved evidence.
       - ./uploaded_clips:/app/uploaded_clips
       - ./evidence:/app/evidence
+      # Each detector's own working frames. Mounted because the individual
+      # endpoints return paths into it - unmounted, they would point at files
+      # inside the container that nobody can open.
+      - ./debug:/app/debug
       # Shared with the stream service: it records segments here, this service
       # reads them back by the same path when asked to analyze one.
       - ./spool:/app/spool

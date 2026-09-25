@@ -15,10 +15,6 @@ __pycache__/
 # `folder/*` ignores the *contents* instead, which leaves git free to see the
 # .gitkeep and track it.
 #
-# The same trap applies one level down: `evidence/manual_detections/*` matches
-# the `spit/` directory itself, so each action folder has to be re-included
-# before its own .gitkeep can be.
-#
 # Why keep the empty folders at all: compose.yaml bind-mounts them into the
 # containers. A folder that doesn't exist on a fresh clone gets created by
 # Docker as root, which then can't be written to from the host. Shipping them
@@ -33,17 +29,14 @@ uploaded_clips/*
 evidence/live_detections/*
 !evidence/live_detections/.gitkeep
 
-# Detections from clips analyzed by hand: the combined verdict frames sit at
-# the top, each detector's own working frames in a folder beneath.
+# Detections from clips analyzed by hand - one labelled frame per clip.
 evidence/manual_detections/*
 !evidence/manual_detections/.gitkeep
-!evidence/manual_detections/spit/
-!evidence/manual_detections/fight/
-!evidence/manual_detections/vandalism/
-!evidence/manual_detections/fall/
 
-evidence/manual_detections/*/*
-!evidence/manual_detections/*/.gitkeep
+# Each detector's own working frames, written only when it has something to
+# save. Kept out of evidence/ so the two evidence folders stay easy to read.
+debug/*
+!debug/.gitkeep
 
 # Recorded camera segments waiting to be analyzed. Deleted automatically once
 # each one has been handled - this is a queue, not an archive.

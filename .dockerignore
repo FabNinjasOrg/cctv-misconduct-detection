@@ -20,6 +20,7 @@
 uploaded_clips
 evidence
 spool
+debug
 
 # Packaging and docs - not needed inside the image.
 #

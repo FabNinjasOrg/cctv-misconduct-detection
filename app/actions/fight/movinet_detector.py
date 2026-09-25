@@ -16,8 +16,7 @@ STRIDE_FRAMES = 4       # hop between consecutive windows
 CONFIDENCE_MIN = 0.5    # ignore low-confidence guesses
 TOP_FRAMES_LIMIT = 1    # only the single highest-confidence window gets saved as evidence
 
-FIGHT_MIL_FRAMES_DIR = "evidence/manual_detections/fight/movinet"
-os.makedirs(FIGHT_MIL_FRAMES_DIR, exist_ok=True)
+FIGHT_MIL_FRAMES_DIR = "debug/fight/movinet"
 
 violence_classifier = MovinetViolenceClassifier(BACKBONE_WEIGHTS_DIR, HEAD_WEIGHTS_PATH)
 
@@ -114,6 +113,7 @@ def save_evidence_frame(match: dict) -> dict:
     label = f"Fight {confidence:.2f} | t={match['t']}s"
     cv2.putText(outlined_frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
+    os.makedirs(FIGHT_MIL_FRAMES_DIR, exist_ok=True)  # only when there is something to save
     frame_path = os.path.join(FIGHT_MIL_FRAMES_DIR, f"fight_mil_t{match['t']}.jpg")
     cv2.imwrite(frame_path, outlined_frame)
 

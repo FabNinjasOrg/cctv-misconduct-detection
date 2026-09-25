@@ -22,8 +22,7 @@ FIGHT_QUESTION = (
     "or 'no', then a short reason."
 )
 
-FIGHT_FRAMES_DIR = "evidence/manual_detections/fight/yolo"
-os.makedirs(FIGHT_FRAMES_DIR, exist_ok=True)
+FIGHT_FRAMES_DIR = "debug/fight/yolo"
 
 fight_model = YOLO(FIGHT_MODEL_PATH)
 
@@ -127,6 +126,7 @@ def save_evidence_frame(match: dict) -> dict:
     label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
     cv2.putText(outlined_frame, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
+    os.makedirs(FIGHT_FRAMES_DIR, exist_ok=True)  # only when there is something to save
     frame_path = os.path.join(FIGHT_FRAMES_DIR, f"fight_t{match['t']}.jpg")
     cv2.imwrite(frame_path, outlined_frame)
 

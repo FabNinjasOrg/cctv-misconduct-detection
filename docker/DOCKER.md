@@ -108,9 +108,11 @@ curl -F "filepath=uploaded_clips/spit-1.mp4" \
      http://localhost:8000/analyze-action
 ```
 
-Every clip already in `uploaded_clips/` is visible to the container, and evidence
-is written straight back into `evidence/manual_detections/`, `evidence/manual_detections/spit/` and so
-on, exactly where a native run puts it.
+Every clip already in `uploaded_clips/` is visible to the container, and the
+verdict frame is written straight back into `evidence/manual_detections/`,
+exactly where a native run puts it. Each detector's own working frames go to
+`debug/<action>/`, which is mounted for the same reason — the individual
+endpoints return paths into it.
 
 ## Endpoints
 

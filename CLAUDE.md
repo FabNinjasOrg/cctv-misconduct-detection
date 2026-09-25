@@ -25,13 +25,16 @@ app/
   stream/            RTSP recorder + analysis worker
   shared/            motion_filter, pose_tracking, gemini_review
 
-evidence/            all detector output, kept at the top level so it's visible
+evidence/            results only - exactly two folders, both user-facing
   live_detections/   per-camera output from the stream service + detections.jsonl
-  manual_detections/ combined verdict frames from clips analyzed by hand, with
-                     each detector's own working frames in spit/ fight/
-                     vandalism/ fall/ beneath them
+  manual_detections/ one combined verdict frame per clip analyzed by hand
 
 uploaded_clips/      received videos
+debug/               each detector's own working frames, one folder per action.
+                     Deliberately outside evidence/ so the two folders above
+                     stay readable. Created lazily - each detector's makedirs
+                     runs at the point of writing a frame, not at import, so a
+                     fresh install has no debug/ tree until something is found.
 spool/               recorded segments awaiting analysis (self-emptying queue)
 models/              all weights: YOLO11, YOLO11-pose, fight YOLOv8, movinet/
 docker/              Dockerfile, pinned requirements.txt, DOCKER.md
