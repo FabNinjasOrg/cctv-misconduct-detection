@@ -28,11 +28,16 @@ Only three of these are yours to open day to day. They're the first three.
 
 ### Inside `evidence/`
 
+Two folders — one per way of using it.
+
 | Folder | What's inside |
 |---|---|
-| **`evidence/detections/`** | **The final answer for each video.** One picture, labelled `Fight 99%`. This is the one you want. |
-| **`evidence/live/`** | What the cameras caught, one folder per camera. Picture + video clip + `detections.jsonl` (the running list). |
-| `evidence/spit/` `fight/` `vandalism/` `fall/` | Each detector's own rough working-out. For digging into *why* something was flagged. |
+| **`live_detections/`** | **What the cameras caught.** One folder per camera: picture + video clip, plus `detections.jsonl`, the running list of everything found. |
+| **`manual_detections/`** | **What the videos you uploaded caught.** One picture per video, labelled `Fight 99%`. |
+
+And inside `manual_detections/`, one folder per action — `spit/`, `fight/`,
+`vandalism/`, `fall/`. That's each detector's own rough working-out, for
+digging into *why* something got flagged. You can ignore these day to day.
 
 ### Inside `app/`
 
@@ -93,7 +98,7 @@ docker compose up -d --build
 
 That's it. It is now recording and checking.
 
-Anything it finds appears in **`evidence/live/`**.
+Anything it finds appears in **`evidence/live_detections/`**.
 
 ### Other commands
 
@@ -120,7 +125,7 @@ You get back the verdict:
   "activity_detected": true,
   "action": "vandalism",
   "confidence": 0.881,
-  "final_frame": "evidence/detections/vandalism-1_vandalism_88pct.jpg"
+  "final_frame": "evidence/manual_detections/vandalism-1_vandalism_88pct.jpg"
 }
 ```
 
@@ -134,7 +139,7 @@ Open that `final_frame` file to see the moment, boxed and labelled.
 |---|---|
 | `401 Unauthorized` in the logs | Wrong username or password. The username is the tricky one — check the camera app. |
 | `Connection refused` / `timed out` | Wrong IP, or the camera is on a different network from this computer. |
-| Nothing in `evidence/live/` | Normal if nothing happened. Run `docker compose logs -f` to confirm it's recording. |
+| Nothing in `evidence/live_detections/` | Normal if nothing happened. Run `docker compose logs -f` to confirm it's recording. |
 | "not keeping up in real time" warning | This computer is too slow for every-segment checking. In `stream.yaml`, set `analyze_one_in: 3`. |
 
 ---

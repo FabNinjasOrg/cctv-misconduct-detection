@@ -22,7 +22,7 @@ FIGHT_QUESTION = (
     "or 'no', then a short reason."
 )
 
-FIGHT_FRAMES_DIR = "evidence/fight/yolo"
+FIGHT_FRAMES_DIR = "evidence/manual_detections/fight/yolo"
 os.makedirs(FIGHT_FRAMES_DIR, exist_ok=True)
 
 fight_model = YOLO(FIGHT_MODEL_PATH)

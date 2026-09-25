@@ -220,7 +220,7 @@ DECISION_THRESHOLD = 0.5   # confidence needed to call it "spitting detected"
 GAIT_PENALTY = 0.3         # confidence multiplier applied if the person looks like they're walking
 CONTACT_PENALTY = 0.3      # confidence multiplier applied if another person's body overlapped theirs during the bow
 
-ACTIVITY_FRAMES_DIR = "evidence/spit/kinematic"
+ACTIVITY_FRAMES_DIR = "evidence/manual_detections/spit/kinematic"
 os.makedirs(ACTIVITY_FRAMES_DIR, exist_ok=True)
 
 # Which keypoints connect to which, just for drawing the skeleton on evidence images

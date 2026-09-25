@@ -16,7 +16,7 @@ STRIDE_FRAMES = 4       # hop between consecutive windows
 CONFIDENCE_MIN = 0.5    # ignore low-confidence guesses
 TOP_FRAMES_LIMIT = 1    # only the single highest-confidence window gets saved as evidence
 
-FIGHT_MIL_FRAMES_DIR = "evidence/fight/movinet"
+FIGHT_MIL_FRAMES_DIR = "evidence/manual_detections/fight/movinet"
 os.makedirs(FIGHT_MIL_FRAMES_DIR, exist_ok=True)
 
 violence_classifier = MovinetViolenceClassifier(BACKBONE_WEIGHTS_DIR, HEAD_WEIGHTS_PATH)

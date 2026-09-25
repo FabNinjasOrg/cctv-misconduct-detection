@@ -15,29 +15,35 @@ __pycache__/
 # `folder/*` ignores the *contents* instead, which leaves git free to see the
 # .gitkeep and track it.
 #
-# Why keep the empty folders at all: compose.yaml bind-mounts every one of
-# these into the containers. A folder that doesn't exist on a fresh clone gets
-# created by Docker as root, which then can't be written to from the host.
-# Shipping them empty avoids that entirely.
+# The same trap applies one level down: `evidence/manual_detections/*` matches
+# the `spit/` directory itself, so each action folder has to be re-included
+# before its own .gitkeep can be.
+#
+# Why keep the empty folders at all: compose.yaml bind-mounts them into the
+# containers. A folder that doesn't exist on a fresh clone gets created by
+# Docker as root, which then can't be written to from the host. Shipping them
+# empty avoids that entirely.
 # ---------------------------------------------------------------------------
 
 # Clips uploaded through /upload-clip, and the test clips analyzed by hand.
 uploaded_clips/*
 !uploaded_clips/.gitkeep
 
-# Everything the detectors save out.
-evidence/detections/*
-!evidence/detections/.gitkeep
-evidence/live/*
-!evidence/live/.gitkeep
-evidence/spit/*
-!evidence/spit/.gitkeep
-evidence/fight/*
-!evidence/fight/.gitkeep
-evidence/vandalism/*
-!evidence/vandalism/.gitkeep
-evidence/fall/*
-!evidence/fall/.gitkeep
+# Detections from the live cameras.
+evidence/live_detections/*
+!evidence/live_detections/.gitkeep
+
+# Detections from clips analyzed by hand: the combined verdict frames sit at
+# the top, each detector's own working frames in a folder beneath.
+evidence/manual_detections/*
+!evidence/manual_detections/.gitkeep
+!evidence/manual_detections/spit/
+!evidence/manual_detections/fight/
+!evidence/manual_detections/vandalism/
+!evidence/manual_detections/fall/
+
+evidence/manual_detections/*/*
+!evidence/manual_detections/*/.gitkeep
 
 # Recorded camera segments waiting to be analyzed. Deleted automatically once
 # each one has been handled - this is a queue, not an archive.

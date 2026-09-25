@@ -52,8 +52,8 @@ spool/<camera>/<camera>_<timestamp>.mp4      10-second chunks
 POST /analyze-action  ->  detector service
     |  anything at or above min_confidence
     v
-evidence/live/<camera>/   frame + clip
-evidence/live/detections.jsonl
+evidence/live_detections/<camera>/   frame + clip
+evidence/live_detections/detections.jsonl
 ```
 
 Each detection appends one line to `detections.jsonl`:
@@ -62,8 +62,8 @@ Each detection appends one line to `detections.jsonl`:
 {"detected_at":"2026-09-24T07:20:30+00:00","camera":"cam-1",
  "segment":"cam-1_20260924-071830.mp4","action":"fall","confidence":0.704,
  "scores":{"spit":0.185,"vandalism":0.207,"fall":0.704,"fight":0.0},
- "evidence_frame":"evidence/live/cam-1/..._fall_70pct.jpg",
- "evidence_clip":"evidence/live/cam-1/..._fall_70pct.mp4"}
+ "evidence_frame":"evidence/live_detections/cam-1/..._fall_70pct.jpg",
+ "evidence_clip":"evidence/live_detections/cam-1/..._fall_70pct.mp4"}
 ```
 
 ### Keeping up
@@ -109,7 +109,7 @@ curl -F "filepath=uploaded_clips/spit-1.mp4" \
 ```
 
 Every clip already in `uploaded_clips/` is visible to the container, and evidence
-is written straight back into `evidence/detections/`, `evidence/spit/` and so
+is written straight back into `evidence/manual_detections/`, `evidence/manual_detections/spit/` and so
 on, exactly where a native run puts it.
 
 ## Endpoints

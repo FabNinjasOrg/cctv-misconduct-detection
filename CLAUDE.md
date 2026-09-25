@@ -26,9 +26,10 @@ app/
   shared/            motion_filter, pose_tracking, gemini_review
 
 evidence/            all detector output, kept at the top level so it's visible
-  detections/        combined verdict frames (the ones that matter)
-  live/              per-camera output from the stream service + detections.jsonl
-  spit/  fight/  vandalism/  fall/      per-detector working frames
+  live_detections/   per-camera output from the stream service + detections.jsonl
+  manual_detections/ combined verdict frames from clips analyzed by hand, with
+                     each detector's own working frames in spit/ fight/
+                     vandalism/ fall/ beneath them
 
 uploaded_clips/      received videos
 spool/               recorded segments awaiting analysis (self-emptying queue)

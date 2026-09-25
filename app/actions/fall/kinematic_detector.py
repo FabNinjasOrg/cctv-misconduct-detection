@@ -234,7 +234,7 @@ DISAPPEAR_EDGE_MARGIN_RATIO = 0.08  # if they vanished within this fraction of a
 W_FALL, W_ASPECT = 0.7, 0.3
 DECISION_THRESHOLD = 0.5
 
-FALL_FRAMES_DIR = "evidence/fall/kinematic"
+FALL_FRAMES_DIR = "evidence/manual_detections/fall/kinematic"
 os.makedirs(FALL_FRAMES_DIR, exist_ok=True)
 
 # Which keypoints connect to which, just for drawing the skeleton on evidence images

@@ -114,7 +114,7 @@ SELF_DIRECTED_PENALTY = 0.35      # same discount factor as CONTACT_PENALTY - th
 W_STRIKE, W_TOOL = 0.65, 0.35
 DECISION_THRESHOLD = 0.5
 
-VANDALISM_FRAMES_DIR = "evidence/vandalism/object_action"
+VANDALISM_FRAMES_DIR = "evidence/manual_detections/vandalism/object_action"
 os.makedirs(VANDALISM_FRAMES_DIR, exist_ok=True)
 
 object_model = YOLO("models/yolo11n.pt")  # general object detector, checked near the swinging hand

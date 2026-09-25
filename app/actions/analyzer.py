@@ -9,7 +9,7 @@ from app.shared.pose_tracking import track_clip
 from app.actions.spit.kinematic_detector import detect_activity
 from app.actions.vandalism.object_action_detector import detect_vandalism
 
-FINAL_FRAMES_DIR = "evidence/detections"
+FINAL_FRAMES_DIR = "evidence/manual_detections"
 os.makedirs(FINAL_FRAMES_DIR, exist_ok=True)
 
 BANNER_HEIGHT = 40

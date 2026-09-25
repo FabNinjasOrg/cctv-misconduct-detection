@@ -88,8 +88,8 @@ def load(path: str = CONFIG_PATH) -> Config:
         min_confidence=float(analysis.get("min_confidence", 0.5)),
         timeout_seconds=int(analysis.get("timeout_seconds", 600)),
 
-        evidence_dir=str(output.get("evidence_dir", "evidence/live")),
-        detections_log=str(output.get("detections_log", "evidence/live/detections.jsonl")),
+        evidence_dir=str(output.get("evidence_dir", "evidence/live_detections")),
+        detections_log=str(output.get("detections_log", "evidence/live_detections/detections.jsonl")),
         keep_segment_on_detection=bool(output.get("keep_segment_on_detection", True)),
     )
 
