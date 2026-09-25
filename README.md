@@ -55,12 +55,29 @@ That's everything. It's now recording and checking. The first run takes a few mi
 
 ## Everyday commands
 
+**Starting and stopping the camera:**
+
 | Command | What it does |
 |---|---|
-| `docker compose logs -f` | See what it's doing right now |
-| `docker compose down` | Stop it |
-| `docker compose restart stream` | Pick up changes after editing `stream.yaml` |
-| `docker compose up -d --build` | Rebuild after changing code |
+| `docker compose start stream` | **Start recording** |
+| `docker compose stop stream` | **Stop recording** |
+| `docker compose restart stream` | **Apply a change** you made in `stream.yaml` |
+| `docker compose up -d --build stream` | **Apply a code change** (rebuilds first) |
+
+These four only touch the camera. The API keeps running throughout, so <http://localhost:8000/docs> stays available for uploading videos by hand.
+
+> If you've run `docker compose down`, the containers no longer exist and `start` won't find them. Use `docker compose up -d stream` instead — that works whether the container exists or not, so it's the safe one to remember.
+
+**Everything else:**
+
+| Command | What it does |
+|---|---|
+| `docker compose logs -f stream` | Watch what the camera is doing right now (Ctrl-C to exit) |
+| `docker compose ps` | Check what's running |
+| `docker compose up -d` | Start everything |
+| `docker compose down` | Stop everything |
+
+Your evidence is safe through all of these — it lives in folders on your machine, not inside the containers.
 
 ---
 

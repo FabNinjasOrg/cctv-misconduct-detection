@@ -35,7 +35,7 @@ analysis:
   # keep up with the camera in real time: 1 analyzes everything, 3 analyzes ~20
   # seconds out of every minute. Measure first - a 6s clip took ~25s to analyze
   # on an 8-core Mac, so 1 is optimistic on modest hardware.
-  analyze_one_in: 1
+  analyze_one_in: 3
 
   # If analysis falls behind by more than this many waiting segments, the oldest
   # are dropped rather than queued. Without a cap the spool grows until the disk
