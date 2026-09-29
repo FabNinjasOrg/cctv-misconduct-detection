@@ -46,7 +46,6 @@ import numpy as np
 from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
 from app.actions.spit.single_frame_detector import find_object_near_head
 
-# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 
 # COCO-17 keypoint indices, matching spit_detection.py's convention
 NOSE, L_EYE, R_EYE = 0, 1, 2
@@ -56,7 +55,7 @@ L_HIP, R_HIP = 11, 12
 
 SEGMENT_PAD_SECONDS = 0.6    # kept for the baseline-window calc below (see "baseline_end_t") even
                              # though the motion filter that used to share this constant is now gated
-                             # centrally in analyze_action/action_analyzer.py instead of here
+                             # centrally in the live engine instead of here
 
 # --- step 2: pose tracking settings ---
 # TRACK_FPS, the box matching and the pass itself now live in pose_tracking.py,
@@ -80,6 +79,52 @@ MAX_FILL_GAP_FRAMES = round(MAX_FILL_GAP_SECONDS * TRACK_FPS)
 
 # --- scenario 1: bowed-head signature ---
 MIN_PLATEAU_SECONDS = 0.5    # the bowed posture must be held at least this long
+
+# ...and these two bound the other end of it: what a spit's bow must NOT look
+# like. Both exist because a desk camera produced six false spits in three
+# minutes, every one of them a person working at a laptop.
+#
+# The detector's premise is a head-and-trunk dip that is held briefly and then
+# released. Two ordinary desk postures satisfy the old test and nothing else
+# objected: bending right over the desk, and simply reading with your head down
+# for the whole clip.
+#
+# Measured on the four known spit clips against 180 seconds of desk footage:
+#
+#                        real spits      desk false positives
+#     swing_deg          40.5 - 57.6     10.5  18.1  37.6  41.6  52.6  69.8  99.2
+#     bowed_duration_s    3.5 -  4.5      2.0   3.0   3.4   3.9   8.0   8.8   8.9
+#
+# Hence 65 degrees and 6.5 seconds - each sits in the gap above every real spit
+# and below the desk postures that were firing. 99 degrees is nearly doubled
+# over, which is not how anyone spits; nine seconds of head-down is reading.
+#
+# Note what is deliberately NOT gated: whether the legs are visible. It sounds
+# like it should help and it measures the wrong way round - legs are visible in
+# 100% of the desk footage but only 81% of real spits, so requiring them would
+# reject real events and keep the false ones.
+MAX_BOW_SWING_DEG = 65.0
+MAX_BOWED_SECONDS = 6.5
+
+# ...and the same rule again, relative to however much history there actually is.
+#
+# The 6.5-second bar above was measured on whole clips and is unreachable live:
+# the engine keeps a 6.0-second rolling window, so a bow can never be measured at
+# more than 6.0 seconds no matter how long the person really holds it. The three
+# desk postures that this gate exists to reject lasted 8.0, 8.8 and 8.9 seconds -
+# every one of them arrives live as "6.0 seconds", under the bar, and the gate
+# has never once fired outside batch scoring.
+#
+# Expressed as a share of the window it works at any window length. A spit's bow
+# is an event inside the window, with upright posture on at least one side of it:
+#
+#     real spits        3.5 - 4.5s of a 6s window   58% - 75%
+#     desk postures     the entire window           100%
+#
+# At 90% there is simply no upright posture left to have bowed away FROM, so
+# whatever the two-level split found is a wobble within one sustained posture,
+# not a bow. The real spits sit a clear 15 points below it.
+MAX_BOWED_WINDOW_FRACTION = 0.9
 STABILITY_MAX_DEG = 7.0      # how steady the bowed posture must be to count as "held" - a real
                               # bowed-and-holding head still sways a bit (checked against an actual
                               # clean spit clip: a genuine 4-second held bow measured ~6deg of natural
@@ -235,11 +280,9 @@ def detect_activity(filepath: str, person_model, tracks_by_segment: list = None)
 
     tracks_by_segment lets a caller that runs several detectors over one clip hand
     in the pose pass it has already done, instead of each detector repeating the
-    identical work - see analyze_action/action_analyzer.py. Left out, this runs the
+    identical work - see the live engine. Left out, this runs the
     pass itself, so the standalone endpoint behaves exactly as before."""
     # step 1: find where things move in the clip
-    # motion_events = detect_motion(filepath)  # motion filter now runs once in analyze_action/action_analyzer.py
-    # segments = group_motion_segments(motion_events, fps, frame_count)
     fps, segments = whole_clip_segments(filepath)
 
     # step 2: for each motion window, track the person and score their posture
@@ -610,7 +653,21 @@ def score_event(filepath: str, features: dict, other_tracks: dict) -> tuple:
                 and _earliest_close_hand_index(candidate_indices, hand_series, hand_valid, baseline_hand) is not None
             )
 
-            if bowed_duration >= MIN_PLATEAU_SECONDS and (stability_ok or local_hand_ok):
+            # A bow is only a spit's bow if it looks like one: a dip of the head
+            # and trunk, held for a moment and released. Too far over and it is
+            # someone bending down to a desk or the floor; held too long and it
+            # is someone reading, not spitting. See the two constants above.
+            window_span = ts[-1] - ts[0]
+            bow_shaped_like_a_spit = (
+                swing_deg <= MAX_BOW_SWING_DEG
+                and bowed_duration <= MAX_BOWED_SECONDS
+                and (window_span <= 0
+                     or bowed_duration <= window_span * MAX_BOWED_WINDOW_FRACTION)
+            )
+
+            if (bowed_duration >= MIN_PLATEAU_SECONDS
+                    and bow_shaped_like_a_spit
+                    and (stability_ok or local_hand_ok)):
                 bow_score = max(0.0, min(1.0, swing_deg / SWING_REF_DEG))
                 # only trust this cluster as THE event (and search it for evidence below) once
                 # it's actually passed the held-bow bar - otherwise it's just whatever the
@@ -897,6 +954,7 @@ def score_event(filepath: str, features: dict, other_tracks: dict) -> tuple:
         "swing_deg": round(swing_deg, 2),
         "bowed_std_deg": round(bowed_std, 2) if bowed_std is not None else None,
         "bowed_duration_s": round(bowed_duration, 2),
+        "window_span_s": round(ts[-1] - ts[0], 2),
         "bow_score": round(bow_score, 3),
         "quick_lurch_swing_deg": round(quick_lurch_swing_deg, 2),
         "quick_lurch_synced": quick_lurch_synced,

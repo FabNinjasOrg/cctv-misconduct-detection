@@ -1,94 +1,11 @@
-# The one command:
-#
-#   docker compose up -d --build
-#
-# Then: http://localhost:8000/docs
-#
-# This file stays at the project root even though the Dockerfile lives in
-# docker/, because the build context has to be the root (the image needs app/,
-# main.py and models/) and because `docker compose up` only finds a compose file
-# in the directory you run it from. Keeping it here is what makes the command
-# above a one-liner.
-
 services:
-  detector:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: cctv-detection:latest
+  cctv:
+    build: .
     container_name: cctv-detection
     restart: unless-stopped
-
     ports:
-      - "8000:8000"
-
-    env_file:
-      - .env
-
+      - "9000:8088"
+    env_file: .env
     volumes:
-      # The container's paths are the project's own paths, so what you send and
-      # what you get back need no translation: filepath=uploaded_clips/x.mp4 is
-      # ./uploaded_clips/x.mp4 here, and a returned final_frame of
-      # evidence/detections/y.jpg is ./evidence/detections/y.jpg here.
-      #
-      # Mounting rather than baking these in also means rebuilding the image
-      # never destroys saved evidence.
-      - ./uploaded_clips:/app/uploaded_clips
+      - ./camera.yaml:/app/camera.yaml
       - ./evidence:/app/evidence
-      # Each detector's own working frames. Mounted because the individual
-      # endpoints return paths into it - unmounted, they would point at files
-      # inside the container that nobody can open.
-      - ./debug:/app/debug
-      # Shared with the stream service: it records segments here, this service
-      # reads them back by the same path when asked to analyze one.
-      - ./spool:/app/spool
-
-    # Detection is CPU-bound and will happily eat every core. Uncomment and tune
-    # once the throughput measurement is done, to leave the host usable.
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: "4.0"
-    #       memory: 6g
-
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # Records the cameras and feeds each finished segment to the detector above.
-  # Same image, different command - it needs ffmpeg and the stream package, not
-  # the models, and loading a second copy of those would double the memory.
-  stream:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: cctv-detection:latest
-    container_name: cctv-stream
-    restart: unless-stopped
-    command: ["python", "-m", "app.stream"]
-
-    # Nothing is worth recording until the detector can answer, and starting in
-    # order keeps the first minute of logs free of connection errors.
-    depends_on:
-      detector:
-        condition: service_healthy
-
-    env_file:
-      - .env
-
-    volumes:
-      # Camera config, read-only: the container never rewrites it.
-      - ./stream.yaml:/app/stream.yaml:ro
-      - ./spool:/app/spool
-      # Writes its own detections into evidence/live/, and reads back the frame
-      # the detector saved under evidence/detections/ to copy alongside them -
-      # one mount covers both.
-      - ./evidence:/app/evidence
-
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"

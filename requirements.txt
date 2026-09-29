@@ -1,12 +1,18 @@
-fastapi
-uvicorn
-python-multipart
-opencv-python
+# Everything the live view needs. Install with:
+#
+#     pip install -r requirements.txt
+#
+# No web framework and no Gemini client any more - this is one program that
+# opens a camera, not a service with an API.
+
+opencv-python        # decode the RTSP stream, draw the overlay, write snapshots
 numpy
-ultralytics
-torch
+pyyaml               # camera.yaml
+ultralytics          # YOLO11-pose (people and keypoints) and YOLO11 (objects, for vandalism)
+torch                # MoViNet runs on this directly, not through ultralytics
 torchvision
-pillow
-python-dotenv
-google-genai  # Gemini video understanding - shared final-judge step in gemini_review.py, used by fight_detection.py and spit_detection.py
-git+https://github.com/roggerfq/MoViNet-pytorch.git  # MoViNet-A0 backbone (MIT) for fight_detection_mil.py; see vd_mil/NOTICE.md for the classifier checkpoint's CC BY-NC 4.0 license
+
+# MoViNet-A0 backbone (MIT) for the fight classifier - installed straight from
+# GitHub, so git must be available. The classifier checkpoint riding on top of it
+# is CC BY-NC 4.0, internal/research use only: read models/movinet/NOTICE.md
+git+https://github.com/roggerfq/MoViNet-pytorch.git

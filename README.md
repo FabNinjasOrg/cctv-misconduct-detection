@@ -1,182 +1,196 @@
-# CCTV Detection
+# CCTV Live Detection
 
-Watches CCTV video and tells you when something happens — someone **spitting**, a **fight**, **vandalism**, or a **fall**.
-
-When it finds something it saves a picture of the moment, with a box drawn around the person and a label like `Fight 99%`. That picture is the point of the whole thing; everything else here exists to produce it.
-
-There are two ways to use it, and most people end up using both:
-
-| Way | How it works | Results land in |
-|---|---|---|
-| **Live camera** | Point it at a camera and leave it running. It records and checks around the clock, on its own. | `evidence/live_detections/` |
-| **Upload a video** | Hand it a file and ask what's in it. Good for checking an incident someone told you about. | `evidence/manual_detections/` |
+Watch a CCTV camera and see, as it happens, when someone **falls**, **fights**, **spits** or **vandalises** something.
 
 ---
 
-## What you need to run it
+## What this is
 
-Every number below was measured on this project, not estimated.
-
-| | Minimum | Recommended |
-|---|---|---|
-| **Processor** | 4 cores | **8 cores** |
-| **Memory (RAM)** | 4 GB | **8 GB** |
-| **Free disk space** | 10 GB | **20 GB** |
-| **Operating system** | Anything that runs Docker | Windows, macOS or Linux |
-| **Network** | Same network as the camera | Wired |
-| **Graphics card** | Not required | NVIDIA, for checking every second of footage |
-| **Cameras per machine** | 1 | 1 |
+- A program that connects to **one CCTV camera** on your network.
+- It watches every person in the picture and works out what they are doing.
+- It shows the live video **in your web browser**, with a box and a label on each person.
+- When it spots one of the four actions, it **saves a picture** of that moment as proof.
+- It records no video and keeps no database. Only the pictures are kept.
 
 ---
 
-## Quick start
+## How it works
 
-Four steps. You need your camera's **username** and its **IP address** — both are in the camera's phone app, usually under *Advanced Settings → Camera Account*.
+1. **Watch.** It reads the camera's live video, 15 pictures every second.
+2. **Find people.** An AI model finds each person and marks their joints: head, shoulders, hips, knees and so on.
+3. **Follow them.** Each person gets a number and is followed from picture to picture, so it builds up a few seconds of how they moved.
+4. **Judge.** That movement is checked against each action, and every action gets a score from 0 to 100%:
+   - **Fall:** the body goes from upright to lying down in under a second, and stays down.
+   - **Spit:** the head dips sharply forward and holds there.
+   - **Vandalism:** a very fast swing of an arm or kick of a leg. It scores higher if a bat, bottle or knife is in the hand.
+   - **Fight:** judged on the **whole picture**, not on one person. A second AI model watches one second of video and says how much it looks like a fight.
+5. **Ignore stillness.** Someone standing or sitting still isn't judged at all. All four actions involve movement, so skipping still people prevents false alarms.
+6. **Show.** Boxes and labels are drawn on the video, and it goes to your browser.
+7. **Save.** When a score is high enough, the box turns red and a picture is saved.
 
-> **The username trips up almost everyone.** On TP-Link Tapo cameras it's a name *you* chose when setting the camera up, and it's usually **not** `admin`. If the logs later say `401 Unauthorized`, this is nearly always why.
+### For developers
 
-**1. Create your settings file**
+```
+Camera ─► capture.py ─► engine.py ──────────────────────────► render.py ─► server.py ─► browser
+(RTSP)    keeps only    pose (YOLO11) → tracking →              boxes,      MJPEG on
+          the newest    spit / fall / vandalism scores          labels      port 8088
+          frame         + fight (MoViNet, whole scene)            │
+                                                                  └─► evidence.py ─► evidence/live_view/
+```
+
+- **Entry point:** `python -m app.live`, in `app/live/__main__.py`.
+- **Detectors:** `app/actions/`, one folder per action. The live engine calls their real scoring functions rather than keeping its own copy.
+- **Threads:** four of them, for capture, the frame loop, pose scoring and fight scoring. A slow score only delays a label; it never makes tracking skip frames.
+- **Design notes:** `CLAUDE.md` and `docs/general.md`. Read them before changing any threshold.
+
+---
+
+## What you need
+
+| | |
+|---|---|
+| **Docker** | Docker Desktop on Mac or Windows, or Docker Engine with Compose on Linux |
+| **A camera** | Any RTSP camera on the same network as this computer |
+| **Processor** | 4 cores minimum, **8 recommended** |
+| **Memory** | 4 GB minimum, **8 GB recommended** |
+| **Disk** | About 10 GB free. The Docker image is big because of the AI libraries. |
+| **Graphics card** | Not needed. The Docker setup runs on the processor only. |
+
+---
+
+## Set it up with Docker
+
+Run every command from the project folder.
+
+### 1. Install Docker
+
+- **Mac or Windows:** install Docker Desktop and open it.
+- **Linux:** install Docker Engine and the Compose plugin.
+- **Check it works:**
+
+  ```bash
+  docker compose version
+  ```
+
+### 2. Create your settings file
 
 ```bash
 cp .env.example .env
 ```
 
-**2. Put your camera password in `.env`**
+Open `.env` and fill in:
 
 ```
-CAM1_PASSWORD=your-camera-password-here
+CAM1_PASSWORD=your-camera-password
 ```
 
-No quotes. If the password contains awkward characters like `@` or `:`, leave them exactly as they are — the code escapes them for you.
+- **`CAM1_PASSWORD`:** the camera password exactly as it is. Don't add quotes. Characters like `@` or `:` are fine.
 
-**3. Put your camera's address in `stream.yaml`** (line 11)
+### 3. Add your camera's address
+
+Open `camera.yaml` and change the `url` line:
 
 ```yaml
 cameras:
   - name: cam-1
-    url: rtsp://USERNAME:${CAM1_PASSWORD}@CAMERA-IP:554/stream1
+    url: rtsp://USERNAME:${CAM1_PASSWORD}@192.168.1.64:554/stream1
 ```
 
-Swap in your username and IP address (something like `192.168.1.64`). Leave `${CAM1_PASSWORD}` alone — it reaches into `.env` and fetches the password, which is what keeps the real password out of this file.
+- **What to change:** `USERNAME`, the IP address and the ending (`/stream1`), to match your camera.
+- **What to leave alone:** `${CAM1_PASSWORD}`. It fills in the password from `.env`.
+- **The username is usually not `admin`.** On Tapo, Reolink and most home cameras, you create a separate camera account in the phone app, often under *Advanced Settings → Camera Account*. Creating that account is often what turns the video feed on in the first place.
+- **No camera yet?** Skip this step. The page still opens, but the picture stays blank.
 
-**4. Set how much footage gets checked** — `stream.yaml`, `analyze_one_in`
-
-This is the one setting you'll actually want to think about. See the section below for how to choose it.
-
-**Then start it:**
+### 4. Build and start
 
 ```bash
 docker compose up -d --build
 ```
 
-That's everything. It's now recording and checking. The first run takes a few minutes to build; after that it's quick. Results appear in **`evidence/live_detections/`**.
+- **First time:** it takes several minutes, because it downloads a few GB of AI libraries.
+- **After that:** it starts in seconds.
 
----
+### 5. Open it in your browser
 
-## How much footage gets checked (`analyze_one_in`)
-
-**The camera is always recorded. Nothing is ever missed on the recording side.** The video is chopped into **10-second chunks**, one after another, without pause.
-
-Checking a chunk is the slow part. Running four AI detectors over 10 seconds of video takes **roughly 40 seconds** on a normal laptop or office PC. So chunks arrive faster than they can be checked — one every 10 seconds, each taking 40 to look at. Left alone, the queue would grow forever and your alerts would drift further and further into the past.
-
-`analyze_one_in` is how you fix that. It means: **check one chunk out of every N, throw the rest away unchecked.**
-
-| Setting | What gets checked | Coverage |
-|---|---|---|
-| `analyze_one_in: 1` | Every chunk | 100% — needs a very fast machine |
-| `analyze_one_in: 3` | 10 seconds out of every 30 | ~33% |
-| `analyze_one_in: 5` | 10 seconds out of every 50 | ~20% |
-| `analyze_one_in: 6` | 10 seconds out of every minute | ~17% |
-
-### Picking the right number
-
-One rule:
-
-> **10 × N must be larger than the time one check takes.**
-
-At `N = 5`, a chunk to check comes up every 50 seconds and a check takes ~40 — so it finishes with 10 seconds to spare and never falls behind. At `N = 3` it's every 30 seconds against 40 of work, and the queue slowly grows.
-
-**On a typical machine, start with `analyze_one_in: 5`.** Then watch the logs:
-
-```bash
-docker compose logs -f stream
-```
-
-If you see this, the number is too low:
-
-```
-analysis took 41s for 10s of footage - not keeping up in real time.
-```
-
-Raise it by one and restart. If you never see that warning, you can try lowering it for better coverage.
-
-### What you give up
-
-With `N = 5` you're watching about one second in five. An incident lasting a few seconds might land in a skipped chunk and be missed entirely. Something that goes on for half a minute will almost certainly be caught.
-
-That's the trade, and it's genuinely better than the alternative: a system set to check everything falls behind, and once it's behind it starts **discarding the oldest chunks anyway** (see `max_backlog_segments`) — so you end up with worse coverage *and* alerts that are minutes stale. Sampling deliberately beats drowning.
-
-Faster hardware is the real answer if you need full coverage. A machine with a decent NVIDIA GPU checks a chunk in a second or two, and `analyze_one_in: 1` becomes realistic.
-
-After changing it:
-
-```bash
-docker compose restart stream
-```
+- **On this computer:** **<http://localhost:9000>**
+- **Allow about a minute after starting** while the AI models load. It is ready when `docker compose logs` shows `live view on http://localhost:9000`.
 
 ---
 
 ## Everyday commands
 
-**Starting and stopping the camera:**
-
-| Command | What it does |
+| To… | Run |
 |---|---|
-| `docker compose start stream` | **Start recording** |
-| `docker compose stop stream` | **Stop recording** |
-| `docker compose restart stream` | **Apply a change** you made in `stream.yaml` |
-| `docker compose up -d --build stream` | **Apply a code change** (rebuilds first) |
+| Start it | `docker compose up -d` |
+| Stop it | `docker compose down` |
+| Restart it | `docker compose restart` |
+| See what it's doing | `docker compose logs -f` (Ctrl-C stops watching, not the program) |
+| Check it's running | `docker compose ps` |
 
-These four only touch the camera. The API keeps running throughout, so <http://localhost:8000/docs> stays available for uploading videos by hand.
-
-> If you've run `docker compose down`, the containers no longer exist and `start` won't find them. Use `docker compose up -d stream` instead — that works whether the container exists or not, so it's the safe one to remember.
-
-**Everything else:**
-
-| Command | What it does |
-|---|---|
-| `docker compose logs -f stream` | Watch what the camera is doing right now (Ctrl-C to exit) |
-| `docker compose ps` | Check what's running |
-| `docker compose up -d` | Start everything |
-| `docker compose down` | Stop everything |
-
-Your evidence is safe through all of these — it lives in folders on your machine, not inside the containers.
+- **It runs in the background.** It also starts again by itself whenever Docker restarts, until you run `docker compose down`.
+- **Stopping it never deletes your pictures.** They are saved in the `evidence/` folder on your computer, not inside Docker.
 
 ---
 
-## Checking a video manually
+## After you change something
 
-Open **<http://localhost:8000/docs>**. You get a page listing everything the system can do, and you can run any of it there without touching a terminal.
+| What you changed | Run | Why |
+|---|---|---|
+| `camera.yaml` | `docker compose restart` | The camera settings are only read at startup |
+| `.env` | `docker compose up -d` | Docker picks up the new values and starts a fresh container |
+| `compose.yaml` | `docker compose up -d` | Same as above |
+| Code in `app/`, `models/`, `requirements.txt` or `Dockerfile` | `docker compose up -d --build` | The code is copied into the image, so the image has to be rebuilt |
 
-It's a two-step job:
+**Not sure which one?** `docker compose up -d --build` is always safe. It just takes a little longer.
 
-1. **`POST /upload-clip`** → *Try it out* → choose your video → *Execute*. It hands back a path like `uploaded_clips/20260925_141500_myvideo.mp4`.
-2. **`POST /analyze-action`** → *Try it out* → paste that path into the `filepath` box → *Execute*.
+---
 
-After a minute or so you get the verdict:
+## What you'll see
 
-```json
-{
-  "activity_detected": true,
-  "action": "vandalism",
-  "confidence": 0.881,
-  "final_frame": "evidence/manual_detections/vandalism-1_vandalism_88pct.jpg"
-}
+| | |
+|---|---|
+| **Grey** box | Just spotted someone. It is still gathering their movement, so it's too early to judge. |
+| **Green** box | Watching, and nothing detected |
+| **Red** box | Something detected. The label says what, e.g. `FALL 79%`. |
+| **Red border** round the whole picture | A **fight** |
+
+- **Why fight looks different:** it is judged on the whole scene, not on one person. There's no single body to point at, so the whole picture gets the border.
+- **Raw scores:** under each label are the scores for every action, e.g. `vandalism 0.31  fall 0.29`. They show what *nearly* fired, which is useful while you are still learning to trust it.
+- **Frame rate:** shown bottom-left. It should read close to 15.
+
+---
+
+## Where the pictures go
+
+```
+evidence/live_view/cam-1/cam-1_20260925-161424_fall_79pct.jpg
+                         cam-1_20260925-161424_fall_79pct.json
+                         └ camera   └ when       └ what └ how sure
 ```
 
-Open that `final_frame` file to see the moment it caught, boxed and labelled.
+- **One picture per event:** each detection saves one picture, with a small `.json` file beside it.
+- **The picture:** it has the box, skeleton and label drawn on, so it shows what the system thought, not just what the camera saw.
+- **The `.json` file:** it holds every action's score and the reasons behind it. That's how you tell a wrong alarm from a right one.
 
-`/analyze-action` runs all four detectors and returns the single strongest answer, which is almost always what you want. The other endpoints on that page run one detector on its own — useful when you're investigating why something was or wasn't flagged, but not the everyday route.
+  ```json
+  { "action": "spit", "confidence": 0.6,
+    "scores": { "spit": 0.6, "vandalism": 0.17, "fall": 0.0 },
+    "signals": { "swing_deg": 41.8, "bowed_duration_s": 3.9, "hand_proximity_score": 0.81 } }
+  ```
+
+---
+
+## Running without Docker
+
+You need Python 3.11 or newer. then run:
+
+```bash
+pip install -r requirements.txt
+set -a && source .env && set +a     # load the camera password
+python -m app.live                  # then open http://localhost:8088
+```
+
+Press **Ctrl-C** to stop it.
 
 ---
 
@@ -185,85 +199,21 @@ Open that `final_frame` file to see the moment it caught, boxed and labelled.
 ```
 cctv-detection/
 │
-├── evidence/              ← THE RESULTS
-│   ├── live_detections/       from the cameras
-│   └── manual_detections/     from videos you uploaded
+├── evidence/live_view/    ← THE RESULTS, one folder per camera
+├── camera.yaml            ← your camera address     (you edit)
+├── .env                   ← your camera password    (you edit)
 │
-├── uploaded_clips/        ← videos you've given it to check
-├── stream.yaml            ← your camera settings      (you edit)
-├── .env                   ← your camera password      (you edit)
+├── Dockerfile             how the Docker image is built
+├── compose.yaml           how Docker runs it: port, settings, folders
 │
-├── main.py                the web API
-├── app/                   all the code
+├── app/
+│   ├── live/              the live view itself
+│   ├── actions/           the four detectors
+│   └── shared/            pose tracking, shared by three of them
+│
 ├── models/                the trained AI files
-├── docker/                build and packaging
-├── debug/                 detector working-out, safe to delete
-├── spool/                 scratch space, empties itself
+├── uploaded_clips/        test clips
 └── docs/                  design notes
 ```
 
-Three things here are yours: **`evidence/`**, **`stream.yaml`** and **`.env`**. The rest is machinery you can leave alone.
-
-**Inside `evidence/`** there are exactly two folders:
-
-| Folder | What's in it |
-|---|---|
-| **`live_detections/`** | What the cameras caught. A folder per camera holding the picture and the video clip it came from, plus **`detections.json`** — the running log of everything found. |
-| **`manual_detections/`** | What the videos you uploaded caught. One labelled picture per video. |
-
-**Inside `app/`**, if you ever need it: `actions/` holds the four detectors, `stream/` does the camera recording, `shared/` is the common code between them.
-
----
-
-## The detection log
-
-`evidence/live_detections/detections.json` is the timestamped record of everything the cameras found. It's a plain JSON array, newest entry last, so you can open it in any editor or load it straight into a script, spreadsheet or dashboard.
-
-```json
-[
-  {
-    "recorded_at": "2026-09-24T07:18:30+05:30",
-    "detected_at": "2026-09-24T07:20:30+05:30",
-    "camera": "cam-1",
-    "action": "fall",
-    "confidence": 0.704,
-    "confidence_percent": 70,
-    "evidence_image": "evidence/live_detections/cam-1/cam-1_20260924-071830_fall_70pct.jpg",
-    "evidence_clip": "evidence/live_detections/cam-1/cam-1_20260924-071830_fall_70pct.mp4",
-    "scores": { "spit": 0.185, "vandalism": 0.207, "fall": 0.704, "fight": 0.0 },
-    "source_segment": "cam-1_20260924-071830.mp4"
-  }
-]
-```
-
-| Field | What it tells you |
-|---|---|
-| **`recorded_at`** | **When it actually happened.** This is the one you want. |
-| `detected_at` | When the computer finished checking. Can be a minute or more later — that gap is analysis time, not a second incident. |
-| `evidence_image` | The labelled picture. Open this to see what it caught. |
-| `evidence_clip` | The ten seconds of video it came from. A still often isn't enough to judge. |
-| `confidence` | How sure it is, 0 to 1. Anything below `min_confidence` in `stream.yaml` never gets here. |
-| `scores` | What *all four* detectors thought, not just the winner. Useful when a result surprises you. |
-
-**Set `TZ` in `.env`** (e.g. `TZ=Asia/Kolkata`) or these times come out in UTC. It applies to the recorded filenames too, so everything stays consistent.
-
-The file is never appended to blindly: it's rewritten through a temporary file and renamed into place, so pulling the plug mid-write leaves the last good version rather than a broken one. If it ever does become unreadable it's moved aside as `detections.json.corrupt-<timestamp>` instead of being overwritten — it's the only record you have.
-
-Uploaded videos don't write to this log; their results come back in the API response and land in `manual_detections/`.
-
----
-
-## When something's wrong
-
-| What you see | What it usually means |
-|---|---|
-| **`401 Unauthorized`** | Wrong username or password. Start with the username — it's usually not `admin`. |
-| **`Connection refused`** or a timeout | Either the IP is wrong, or the camera is on a different network from this computer. A camera at another site isn't reachable just because you know its address; the two networks have to be genuinely connected. |
-| **Nothing in `live_detections/`** | Normal if nothing has happened. Run `docker compose logs -f` — if it's working you'll see it recording and checking each clip. |
-| **"not keeping up in real time"** | This computer can't check every clip. Set `analyze_one_in: 3` in `stream.yaml` and it'll check a sample instead — roughly twenty seconds out of every minute, usually plenty. |
-
----
-
-**Getting false alarms?** See [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — what causes them, and everything we can do about it, in order.
-
-For deployment details and tuning, see [`docker/DOCKER.md`](docker/DOCKER.md). For how the detection pipeline is designed, see [`docs/general.md`](docs/general.md).
+Three things here are yours: **`evidence/`**, **`camera.yaml`** and **`.env`**. The rest is machinery you can leave alone.

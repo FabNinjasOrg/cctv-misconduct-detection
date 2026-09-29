@@ -4,172 +4,166 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-A FastAPI service that analyzes CCTV video for misconduct / suspicious activity
-— currently spitting, physical fights, vandalism, and falls, each with one or
-more detectors (vandalism and falls have one so far). It runs two ways: clips
-uploaded by hand, or a live RTSP camera recorded and analyzed continuously.
+One program that watches a live RTSP camera and says, in real time, whether
+someone is **falling**, **fighting**, **spitting** or **vandalising**. It draws
+boxes and labels on the feed, serves that to a browser, and saves one annotated
+still per detection.
 
-`README.md` is the user-facing setup guide — keep it accurate when paths change.
+There is no API, no Docker, no recorder and no database. It used to have all of
+those; they were removed deliberately. Don't reintroduce a service layer without
+being asked.
+
+`README.md` is the user-facing guide — keep it accurate when paths change.
 
 ## Layout
 
 ```
-main.py              the FastAPI app - the only .py at the root
-stream.yaml          camera config (the user edits this)
-compose.yaml         stays at the root so `docker compose up -d` is a one-liner
+camera.yaml          the camera (the user edits this)
+.env                 the camera password (the user edits this)
 
 app/
-  actions/           one package per action, plus the combined analyzer
-    analyzer.py      runs all four detectors, returns one verdict
+  live/              the program itself
+    __main__.py      entry point, argument parsing, the frame loop and its pacing
+    capture.py       RTSP thread - always hands back the newest frame, drops the rest
+    engine.py        pose -> tracking -> scoring, plus the fight classifier
+    render.py        boxes, skeletons, labels, the fight banner
+    evidence.py      one snapshot per event, with a cooldown
+    server.py        MJPEG over HTTP
+    config.py        reads camera.yaml
+  actions/           one package per action
     spit/  fight/  vandalism/  fall/
-  stream/            RTSP recorder + analysis worker
-  shared/            motion_filter, pose_tracking, gemini_review
+  shared/
+    pose_tracking.py the pose pass and the usable-pose gate, shared by three
 
-evidence/            results only - exactly two folders, both user-facing
-  live_detections/   per-camera frames and clips, plus detections.json - the
-                     timestamped log, a single JSON array rewritten atomically
-                     on each detection (temp file + os.replace). recorded_at is
-                     parsed from the segment filename and is when the event
-                     happened; detected_at is when analysis finished, which can
-                     be a minute later. TZ in .env controls both.
-  manual_detections/ one combined verdict frame per clip analyzed by hand
-
-uploaded_clips/      received videos
-debug/               each detector's own working frames, one folder per action.
-                     Deliberately outside evidence/ so the two folders above
-                     stay readable. Created lazily - each detector's makedirs
-                     runs at the point of writing a frame, not at import, so a
-                     fresh install has no debug/ tree until something is found.
-spool/               recorded segments awaiting analysis (self-emptying queue)
-models/              all weights: YOLO11, YOLO11-pose, fight YOLOv8, movinet/
-docker/              Dockerfile, pinned requirements.txt, DOCKER.md
+evidence/live_view/  results - one folder per camera, annotated stills only
+models/              YOLO11-pose, YOLO11 (objects, for vandalism), movinet/
+uploaded_clips/      test clips with known answers, for regression checking
 docs/                design notes (general.md)
 ```
 
-**Every model and evidence path in the code is relative to the project root.**
-All commands must run from the root, and `WORKDIR /app` in the container
-reproduces that layout so no path needed changing to containerise.
+**Every model and evidence path in the code is relative to the project root**, so
+commands must be run from there.
 
 ## Commands
 
 ```bash
-pip install -r requirements.txt        # install deps (unpinned, local dev)
-uvicorn main:app --reload              # dev server on http://127.0.0.1:8000
-open http://127.0.0.1:8000/docs        # Swagger UI - easiest way to test the upload
+pip install -r requirements.txt
 
-docker compose up -d --build           # the whole stack: detector + camera recorder
-python -m app.stream                   # just the camera recorder, on the host
+set -a && source .env && set +a      # camera password into the environment
+python -m app.live                   # then http://localhost:8088
 
-# upload a clip from the CLI
-curl -F "file=@uploaded_clips/20260831_135400_cctv-footage.mp4" \
-     http://127.0.0.1:8000/upload-clip
-
-# play a clip back with that detector's skeleton + live confidence overlaid
-python3 -m app.actions.spit.playback      uploaded_clips/<clip>.mp4
-python3 -m app.actions.fight.playback     uploaded_clips/<clip>.mp4
-python3 -m app.actions.vandalism.playback uploaded_clips/<clip>.mp4
-python3 -m app.actions.fall.playback      uploaded_clips/<clip>.mp4
+python -m app.live --no-save         # watch only, write nothing
+python -m app.live --width 480       # faster on a slow machine
+python -m app.live --port 9000       # if 8088 is taken
 ```
 
 Python is `/Users/harshprajapati/miniconda3/bin/python3` (3.13). No test suite,
-linter, or build step is configured yet.
+linter or build step is configured.
 
 ## Architecture
 
-`main.py` is a thin FastAPI layer — it wires up routes and a shared YOLO11-pose
-`person_model`, and delegates all real work to `app/actions/`:
+    Capture (thread) -> latest frame -> LiveEngine -> render -> MJPEG -> browser
+    always newest,                      pose+track+score      overlay
+    drops the rest                      + fight classifier             + snapshot
 
-- `GET /` — health check.
-- `POST /upload-clip` — streams the uploaded file to disk in 1 MB chunks
-  (never buffers the whole video in memory) under `uploaded_clips/` with a
-  `YYYYMMDD_HHMMSS_<original-name>` prefix, then returns the saved path.
-- `POST /analyze-action` → `app/actions/analyzer.py` — the combined endpoint:
-  motion-gates the clip once, runs the primary detector for each action, and
-  reduces the four results to a single verdict (highest confidence wins). Reuses
-  the winning detector's own evidence jpg and adds one banner, so no detector
-  file needs to change. This is what the stream worker calls.
-- `POST /spit/single-frame` → `app/actions/spit/single_frame_detector.py` —
-  per-motion-event heuristic: YOLO11-pose posture (head bow, side tilt,
-  hand-near-mouth) plus a YOLO11 object check near the head, scored one frame
-  at a time.
-- `POST /spit/kinematic` → `app/actions/spit/kinematic_detector.py` — the more
-  accurate spit detector: tracks each person across a motion segment and scores
-  keypoint *kinematics* over time (a held bowed-head plateau, walking vs.
-  stationary, contact with another person, ...), not just a single frame.
-- `POST /fight/yolo` → `app/actions/fight/yolo_detector.py` — a fine-tuned
-  YOLOv8 (`models/fight_yolov8n.pt`) detecting a `violence` class per frame.
-- `POST /fight/movinet` → `app/actions/fight/movinet_detector.py` — a MoViNet
-  clip classifier (weights in `models/movinet/`, Multiple Instance Learning,
-  CC BY-NC 4.0 / internal-research-use-only — see `models/movinet/NOTICE.md`)
-  scoring a sliding window of frames instead of single frames.
-- `POST /vandalism/object-action` → `app/actions/vandalism/object_action_detector.py`
-  — a first-pass heuristic: tracks each person across a motion segment and
-  scores YOLO11-pose wrist/ankle keypoint *velocity* for a fast swing or kick,
-  boosted if a YOLO11-detected tool/weapon-like object (bat, bottle, knife, ...)
-  is near the swinging hand. No fine-tuned vandalism model exists yet, and
-  vandalism has no single motion signature the way spitting/fighting do, so
-  this is deliberately conservative — see the file's header comment.
-- `POST /fall/kinematic` → `app/actions/fall/kinematic_detector.py` — flags a
-  person whose trunk angle and bounding-box shape flip from upright to
-  horizontal within well under a second (a sudden collapse, not a gradual
-  sit/lie-down) and who then stays down. Doesn't try to guess *why* they fell.
+Four threads plus the HTTP server's own: capture, the main frame loop, pose
+scoring, and fight classification. They are separate so that a slow score costs
+label latency rather than tracking fidelity.
 
-### `app/shared/`
+### Three things that are load-bearing
 
-- `motion_filter.py` — background-subtraction motion gate, stage 1 of the
-  pipeline. The analyzer runs it once for all four detectors.
-- `pose_tracking.py` — runs YOLO11-pose across a motion window once and follows
-  each person frame to frame. Spit, vandalism and fall all need exactly this,
-  so the pass happens once and the result is shared. The detectors still work
-  standalone: called without a pre-computed track set, each runs it itself.
-- `gemini_review.py` — an LLM (Gemini) sanity-check call. Currently only wired
-  into (and commented out in) `app/actions/fight/yolo_detector.py`. It reads
-  `os.environ["GEMINI_KEY"]` at module level, so that variable must be set for
-  the app to import at all, even though nothing calls Gemini.
+**The detectors are reused, not reimplemented.** Spit, vandalism and fall each
+split into `compute_kinematics(records)` (pure maths over one person's history)
+and `score_event(...)` (features -> confidence). Both take a list of per-frame
+records, which is exactly what a rolling window is, so `engine.py` builds the
+window and calls their real functions. `_install_frame_adapters` swaps
+`_read_frame_at`/`_read_frames_at` in the spit and vandalism modules for versions
+reading an in-memory ring buffer, which is what lets those run with no file on
+disk. **Don't reimplement scoring in app/live/** — the two would drift apart.
 
-### `app/stream/`
+**15 fps is a correctness requirement, not a smoothness one.** The detectors
+count history in records (`MAX_FILL_GAP_FRAMES = MAX_FILL_GAP_SECONDS *
+TRACK_FPS`), so a different rate silently rescales their tolerances. At 8 fps
+`fall-1.mp4` scores *spit* 0.70 instead of *fall* 1.00. The main loop paces to
+`TARGET_FPS`; `--threads` exists because torch defaulting to all cores made it
+slower, not faster.
 
-`python -m app.stream` starts one `Recorder` per camera plus one `Worker`:
+**A still person is not scored at all.** The recorded pipeline only ever scored
+stretches where something moved, so a window existing already meant something
+had happened. Live there is no such filter and everyone is scored every 0.3s —
+about 12,000 attempts per person per hour, against guards calibrated for dozens.
+`_pose_change()` restores it per-person: average joint wander across the window,
+in box heights, and below `MIN_POSE_CHANGE` the person is skipped and reported
+as zero. All four actions are transitions, so nothing real is lost by ignoring a
+posture held unchanged. That threshold is **reasoned, not yet measured** — every
+snapshot's `.json` records the value as `pose_change` so it can be confirmed
+against real events.
 
-    Recorder (1/camera)  ->  spool/  ->  Worker (1 total)
-    keeps ffmpeg running     finished .mp4   POSTs /analyze-action, saves evidence
+**`SCORE_INTERVAL_SECONDS = 0.3` is measured, not chosen for comfort.** At 0.7
+the scorer stepped straight over spit-1's peak (0.23 against 0.77). Widening the
+window instead changed nothing — 6s and 12s scored identically.
 
-Recorders and the worker are deliberately independent — recording must never
-pause because analysis is slow. They share only the spool folder on disk.
-`config.py` reads `stream.yaml` and percent-encodes camera credentials, which is
-why passwords go into `.env` raw.
+### The four detectors
 
-### Playback scripts
+- `spit/kinematic_detector.py` — tracks each person and scores keypoint
+  kinematics over time: a held bowed-head plateau, walking vs stationary,
+  contact with another person.
+- `vandalism/object_action_detector.py` — scores wrist/ankle velocity for a fast
+  swing or kick, boosted if a YOLO11-detected tool (bat, bottle, knife) is near
+  the swinging hand. Deliberately conservative; vandalism has no single motion
+  signature the way spitting and fighting do.
+- `fall/kinematic_detector.py` — flags a trunk angle and box shape flipping from
+  upright to horizontal in well under a second, and staying down. Doesn't try to
+  guess *why* they fell.
+- `fight/movinet_detector.py` — **the odd one out.** A MoViNet clip classifier
+  scoring the whole picture over 8 frames sampled at 8 fps. Scene-level, not
+  per-person, so it gets its own buffer, thread and banner rather than a label on
+  somebody. `violence_classifier([frames])` is called directly by the live
+  engine; `detect_fighting_mil()` is the file-based version, kept for checking
+  against a recording.
 
-Each action has a `playback.py` that replays an analyzed clip with the pose
-skeleton and a live confidence label drawn frame-by-frame. Spit, vandalism and
-fall show one score per tracked person for their whole appearance (not
-recalculated per frame); fight/movinet genuinely updates over time, since that
-classifier already scores in windows.
+## Accuracy work already done — read before tuning
+
+Four hypotheses were tested against real footage and **three of them failed**.
+The constants that survived carry their measurements in comments; read those
+before changing a number.
+
+| Idea | Outcome |
+|---|---|
+| Usable-pose gate (hips visible, not too close) | **Kept** — `pose_tracking.py` |
+| Fall: require the hip to actually descend | **Kept** — two thresholds, one per signature |
+| Spit: bound the bow's size and duration | **Kept** — 65°, 6.5s |
+| Spit: reject a bow filling the whole window | **Kept** — the 6.5s bar was unreachable live |
+| Fall: ankle height | Failed — bending reads 1.14, a real fall 1.10 |
+| Fall: leg direction | Failed *backwards* — sitting makes legs horizontal |
+| Spit: require legs visible | Failed *backwards* — 100% of desk footage vs 81% of real spits |
+| Vandalism: a desk bottle being read as a tool | Failed — YOLO found no tool near the hand in either false vandalism; the score was pure limb speed |
+
+**Always check both directions.** A gate tuned only against false positives will
+silently delete real events — the pose gate at 0.60 destroyed a genuine spit
+detection, caught only by re-running the known clips.
+
+### What counts as evidence (changed 2026-09-25)
+
+**`evidence/live_view/` is the test set now, not `uploaded_clips/`.** The user's
+instruction: the snapshots are real data from the real camera in its real
+position, and that is what to judge against. Each snapshot has a `.json` beside
+it with every score and the winning detector's full signals — that pair is the
+unit of evidence. `uploaded_clips/` stays on disk but is no longer the bar.
+
+That swap has one sharp edge worth stating plainly, because it is the trap this
+whole section exists to prevent: **a folder of false positives contains no true
+positives.** Tuning against it alone can only ever make the detectors quieter,
+and the quietest detector is one that never fires. Before changing any
+threshold, get the other half — ask the user to perform each action in front of
+the camera so there are real events from the same room to protect.
 
 ## Constraints
 
-- **Spit, vandalism and fall are pose-only** — no fine-tuned models, no LLM /
-  Gemini calls. Fight is the exception (fine-tuned YOLOv8 + MoViNet MIL).
-- Keep the per-stage boundary clean: OpenCV work should be usable without
-  ultralytics or an API key installed, so the project stays runnable while
-  later stages are still being built.
+- **Spit, vandalism and fall are pose-only** — no fine-tuned models, no LLM
+  calls. Fight is the exception (MoViNet).
 - Licensing, unresolved: `models/movinet/` is CC BY-NC 4.0 (cannot ship
   commercially); Ultralytics YOLO is AGPL-3.0.
-
-## Intended pipeline (see `docs/general.md`)
-
-A layered pipeline, each layer added on top of the previous rather than
-replacing it:
-
-1. **opencv-python** — decode, sample/skip frames, crop, draw overlays. Also the
-   first-pass motion detector, so the expensive stages only see frames with
-   activity.
-2. **ultralytics YOLO11-pose** — per-frame person detection plus skeleton
-   keypoints. It has no notion of "actions", so behaviour has to be derived from
-   keypoint motion over time.
-3. **An LLM call** (Gemini) — receives a short clip around the candidate moment
-   and makes the final judgement. Not practical on every frame of 24x7 footage,
-   so it's a final check on stage 1-2 candidates, not a replacement.
-
-An optional React/Vue front end may be added later to consume the REST API.
+- Camera placement beats tuning. The detectors assume a whole person at a
+  distance; a close-up camera breaks the arithmetic rather than degrading it.
+  Moving one camera took 6 false alarms in 13 minutes to 0, with no code change.

@@ -53,13 +53,11 @@ import numpy as np
 # detectors - all three ran the identical pass over the same frames.
 from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
 
-# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 # note: fall used a more generous SEGMENT_PAD_SECONDS (1.5s vs spit/vandalism's ~0.6s) when this
 # ran its own gating - a person who faints/is knocked out stops generating any motion at all right
 # after impact, so the padding after the last motion tick had to be long enough on its own to
 # capture them staying down, or MIN_DOWN_SECONDS below could never be satisfied for exactly the
-# cases that matter most. Worth re-tuning motion_filter.py's shared constant for this if per-detector
-# gating is ever reinstated.
+# cases that matter most. Worth knowing if motion gating is ever reintroduced.
 
 # COCO-17 keypoint indices
 L_SHOULDER, R_SHOULDER = 5, 6
@@ -250,15 +248,13 @@ def detect_fall(filepath: str, person_model, tracks_by_segment: list = None) -> 
 
     tracks_by_segment lets a caller that runs several detectors over one clip hand
     in the pose pass it has already done, instead of each detector repeating the
-    identical work - see analyze_action/action_analyzer.py. Left out, this runs the
+    identical work - see the live engine. Left out, this runs the
     pass itself, so the standalone endpoint behaves exactly as before."""
     video = cv2.VideoCapture(filepath)
     frame_width = video.get(cv2.CAP_PROP_FRAME_WIDTH) or 1.0
     frame_height = video.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1.0
     video.release()
 
-    # motion_events = detect_motion(filepath)  # motion filter now runs once in analyze_action/action_analyzer.py
-    # segments = group_motion_segments(motion_events, fps, frame_count)
     fps, segments = whole_clip_segments(filepath)
 
     candidates = []
@@ -332,6 +328,97 @@ def _fill_missing(values: list, valid: list, max_gap: int = MAX_FILL_GAP_FRAMES)
     return filled
 
 
+# --- the bend-over guard -----------------------------------------------------
+#
+# A trunk that flips from upright to horizontal is the fall signal. The trouble
+# is that bending over a desk does exactly that, and nothing else in signature 1
+# disagrees: the bend is sudden (well under MAX_TRANSITION_SECONDS), it is held
+# (you stay bent), and the swing is 60-80 degrees. All three checks pass, and
+# the detector calls it a fall at 80-90%.
+#
+# What it never asks is whether the person actually went DOWN. Bending is a
+# rotation ABOUT the hip, so the hip barely moves; a fall puts the hip on the
+# floor. That difference is invisible to trunk angle and to box aspect, but it
+# is trivial to measure directly.
+#
+# Measured over 180 seconds of desk footage against the four known fall clips,
+# hip descent in units of the person's own standing box height:
+#
+#     real falls    0.61  0.75  0.77  2.29      (min 0.61)
+#     desk footage  median 0.06, max 0.42       (0.42 = sitting down)
+#
+# A clean gap, so 0.50 sits in the middle of it with room on both sides. Two
+# deliberate choices:
+#
+#   - Normalised by the person's own standing height, so it means the same at
+#     any distance from the camera and needs no per-camera tuning.
+#   - Applied ONLY to signature 1 (the trunk flip). The collapse and vanish
+#     signatures already require real evidence of going down, and gating them
+#     too would reject a fall along the camera's line of sight - the exact case
+#     they exist to catch.
+#
+# Two earlier attempts at this failed on measurement and are worth not
+# repeating: ankle height (bending reads 1.14, a real fall 1.10) and leg
+# direction (desk 21% of frames horizontal, real falls only 6.7% - sitting puts
+# the legs horizontal, so it separates sitting from standing, not fallen from
+# upright).
+MIN_HIP_DESCENT = 0.50
+
+# The same idea for the collapse signature, which needs its own - and lower -
+# bar. Blocking the trunk flip alone was not enough: a desk segment still scored
+# 0.818 through "collapsed", because standing up and sitting down compacts the
+# body's outline exactly the way going down does (ratio 0.46), and the old test
+# asked only about the outline.
+#
+# It is lower because this signature already demands a great deal before it will
+# fire - clearly upright beforehand, compacted within MAX_TRANSITION_SECONDS,
+# held COLLAPSE_HOLD_SECONDS, still down when the footage ends - so the descent
+# check only has to rule out the one case those miss: compacting without
+# actually going anywhere. Measured over the collapse window itself:
+#
+#     real falls    0.41  0.60  0.62
+#     desk segment  0.03
+#
+# fall-3 is why this cannot simply reuse 0.50 - it descends 0.41 here and would
+# have been thrown away. 0.20 sits an order of magnitude above the desk case and
+# comfortably under every real one.
+MIN_HIP_DESCENT_COLLAPSE = 0.20
+
+# How far back to look for "how high were their hips before this". Long enough
+# to span a fall, short enough that it means the current posture rather than
+# where they were standing a minute ago.
+HIP_BASELINE_SECONDS = 2.0
+
+
+def _hip_descent(features: dict, indices: list) -> float:
+    """How far the hip dropped, in the person's own standing box heights.
+
+    For each candidate frame, looks back HIP_BASELINE_SECONDS for that person's
+    most upright moment - smallest hip y, i.e. highest on screen - and measures
+    the drop from there, scaled by how tall their box was at that moment.
+    Returns the largest drop found, or 0.0 if it cannot be measured."""
+    ts = features["ts"]
+    hip_y = features["hip_y"]
+    records = features["records"]
+
+    worst = 0.0
+    for i in indices:
+        if hip_y[i] is None:
+            continue
+        earlier = [
+            j for j in range(i)
+            if hip_y[j] is not None and ts[i] - ts[j] <= HIP_BASELINE_SECONDS
+        ]
+        if not earlier:
+            continue
+
+        highest = min(earlier, key=lambda j: hip_y[j])
+        standing_height = max(records[highest]["box_height"], 1e-6)
+        worst = max(worst, (hip_y[i] - hip_y[highest]) / standing_height)
+
+    return worst
+
+
 def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
     """Turns a person's raw per-frame keypoints + box shape into the posture signals
     used for scoring. Returns None if there isn't enough data to say anything."""
@@ -350,6 +437,7 @@ def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
     trunk_pitch = [0.0] * n
     aspect = [0.0] * n
     trunk_valid = [False] * n
+    hip_y = [None] * n          # for the descent check - see _hip_descent below
 
     for i in range(n):
         box_height = max(1e-6, records[i]["box_height"])
@@ -363,6 +451,7 @@ def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
             mid_shoulder = (kp(i, L_SHOULDER) + kp(i, R_SHOULDER)) / 2
             mid_hip = (kp(i, L_HIP) + kp(i, R_HIP)) / 2
             trunk_pitch[i] = abs(_pitch_angle(mid_shoulder - mid_hip))  # 0 = upright, ~90 = horizontal
+            hip_y[i] = float(mid_hip[1])
 
     if not any(trunk_valid):
         return None
@@ -387,6 +476,7 @@ def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
         "records": records,
         "trunk_pitch": trunk_pitch,
         "aspect": aspect,
+        "hip_y": hip_y,
         "vanish_at": vanish_at,
         "segment_end_t": segment_end_t,
     }
@@ -456,6 +546,7 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
 
     cluster_result = _two_cluster_split(trunk_pitch)
     fall_score = 0.0
+    hip_descent = 0.0
     swing_deg = 0.0
     down_std = None
     down_duration = 0.0
@@ -505,7 +596,14 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
             # alone (e.g. just "wide box" or just "held still") isn't enough on its own
             sudden = transition_seconds is not None and transition_seconds <= MAX_TRANSITION_SECONDS
             held = down_duration >= MIN_DOWN_SECONDS and down_std <= STABILITY_MAX_DEG
-            if sudden and held:
+
+            # ...and they have to have actually gone DOWN, not just leaned over.
+            # Without this, bending over a desk clears every other check here -
+            # see MIN_HIP_DESCENT.
+            hip_descent = _hip_descent(features, down_indices)
+            descended = hip_descent >= MIN_HIP_DESCENT
+
+            if sudden and held and descended:
                 fall_score = max(0.0, min(1.0,
                     (swing_deg - MIN_DOWN_SWING_DEG) / (DOWN_ANGLE_REF_DEG - MIN_DOWN_SWING_DEG)
                 ))
@@ -556,9 +654,14 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
                 and scale_change <= COLLAPSE_SCALE_CHANGE_MAX
             ):
                 ratio = float(np.median([aspect[i] for i in run])) / baseline_aspect
-                if ratio <= COLLAPSE_RATIO_MAX:
+                # ...and the hip has to have gone down with the outline. Sitting
+                # down compacts the box just as well as falling does - see
+                # MIN_HIP_DESCENT_COLLAPSE.
+                if (ratio <= COLLAPSE_RATIO_MAX
+                        and _hip_descent(features, run) >= MIN_HIP_DESCENT_COLLAPSE):
                     collapse_indices = run
                     collapse_ratio = ratio
+                    hip_descent = max(hip_descent, _hip_descent(features, run))
                     depth = (COLLAPSE_RATIO_MAX - ratio) / (COLLAPSE_RATIO_MAX - COLLAPSE_REF_RATIO)
                     collapse_score = max(0.0, min(1.0, COLLAPSE_BASE + (1.0 - COLLAPSE_BASE) * depth))
 
@@ -661,6 +764,10 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
         "down_duration_s": round(down_duration, 2),
         "transition_seconds": round(transition_seconds, 2) if transition_seconds is not None else None,
         "fall_score": round(fall_score, 3),
+        # How far the hip actually dropped, in the person's own standing box
+        # heights. Surfaced because it is the check that separates a fall from a
+        # bend, so when a verdict looks wrong this is the first number to read.
+        "hip_descent": round(hip_descent, 3),
         "aspect_score": round(aspect_score, 3),
         "collapse_score": round(collapse_score, 3),
         "collapse_ratio": round(collapse_ratio, 3) if collapse_ratio is not None else None,

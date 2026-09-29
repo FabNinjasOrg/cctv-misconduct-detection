@@ -1,44 +1,21 @@
+# Secrets. .env.example is committed instead, with the variable names but no values.
 .env
-__pycache__/
-*.pyc
-.DS_Store
 
-# Local editor/tool state, not part of the project.
-.claude/
+# Snapshots the live view saved. Yours, not the repo's - the folder is kept so a
+# fresh clone has somewhere to write.
+evidence/live_view/*
+!evidence/live_view/.gitkeep
 
-# ---------------------------------------------------------------------------
-# Runtime data: footage in, evidence out. Never committed.
-#
-# The pattern is `folder/*` plus `!folder/.gitkeep`, not plain `folder/`, and
-# the difference matters: `folder/` tells git to ignore the directory itself,
-# so git never looks inside it and the `!` exception below can never match.
-# `folder/*` ignores the *contents* instead, which leaves git free to see the
-# .gitkeep and track it.
-#
-# Why keep the empty folders at all: compose.yaml bind-mounts them into the
-# containers. A folder that doesn't exist on a fresh clone gets created by
-# Docker as root, which then can't be written to from the host. Shipping them
-# empty avoids that entirely.
-# ---------------------------------------------------------------------------
-
-# Clips uploaded through /upload-clip, and the test clips analyzed by hand.
+# Test clips for checking the detectors still work after a change. Too big for
+# git, and they are footage rather than code.
 uploaded_clips/*
 !uploaded_clips/.gitkeep
 
-# Detections from the live cameras.
-evidence/live_detections/*
-!evidence/live_detections/.gitkeep
+# Working frames a detector writes while explaining itself. Created only when
+# something is found, safe to delete at any time.
+debug/
 
-# Detections from clips analyzed by hand - one labelled frame per clip.
-evidence/manual_detections/*
-!evidence/manual_detections/.gitkeep
-
-# Each detector's own working frames, written only when it has something to
-# save. Kept out of evidence/ so the two evidence folders stay easy to read.
-debug/*
-!debug/.gitkeep
-
-# Recorded camera segments waiting to be analyzed. Deleted automatically once
-# each one has been handled - this is a queue, not an archive.
-spool/*
-!spool/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store
+.claude/

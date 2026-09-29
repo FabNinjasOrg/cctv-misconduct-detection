@@ -14,12 +14,13 @@ Framework we will use:
 
 =================
 
-24th Sept EOD:
+28th Sept EOD:
 
 HARSH-73: CCTV Footage Misconducting Detection
-- Testing with the real cctv stream
-- Made few adjustments of the area and persons detections to filter out falls positives
-- 
+- Research on how can we improve the detection accuracy
+- Found that using the action recognitions model can help, so tried those as listed below
+- Tried the action recognition model X3D, but requires trining for better results
+- Tested the Nvidia-Cosmos vision model for action recognition, but it is also inaccurate
 
 ==========
 
@@ -44,6 +45,8 @@ spit : python -m spit.playback uploaded_clips/spit-1.mp4
 fight : python -m fight.playback uploaded_clips/fight-7.mp4
 vandalism : python -m vandalism.playback uploaded_clips/vandalism-1.mp4
 fall : python -m fall.playback uploaded_clips/fall-1.mp4
+
+python -m app.live
 
 Challenges:
 

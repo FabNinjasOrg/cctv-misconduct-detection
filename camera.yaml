@@ -1,0 +1,21 @@
+# The one place a camera is configured.
+#
+# Set the URL below, then:  python -m app.live
+#
+# Passwords: prefer ${VAR} here and put the real value in .env, so this file can
+# be committed and shared without leaking credentials. Anything of the form
+# ${NAME} is substituted from the environment when the config loads.
+#
+# The username is usually NOT "admin". On Tapo, Reolink and most consumer
+# cameras you create a separate RTSP account in the phone app - often under
+# Advanced Settings > Camera Account - and that is the one to use here. On many
+# cameras creating it is also what switches RTSP on at all.
+
+cameras:
+  - name: cam-1
+    url: rtsp://office-cam:${CAM1_PASSWORD}@192.168.1.75:554/stream1
+
+    # More cameras can be listed, and `--camera <name>` picks which one to
+    # watch. One live view watches one camera at a time.
+    # - name: back-door
+    #   url: rtsp://USERNAME:${CAM2_PASSWORD}@CAMERA-IP:554/stream1

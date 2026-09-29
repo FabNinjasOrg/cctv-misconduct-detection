@@ -3,7 +3,6 @@ import os
 
 import cv2
 
-# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 from app.actions.fight.person_guard import SINGLE_PERSON_PENALTY, max_people_nearby
 from app.actions.fight.vd_mil.movinet_classifier import MovinetViolenceClassifier
 
@@ -22,20 +21,19 @@ violence_classifier = MovinetViolenceClassifier(BACKBONE_WEIGHTS_DIR, HEAD_WEIGH
 
 
 def detect_fighting_mil(filepath: str, person_model) -> dict:
-    """Motion-gates the clip first (see motion_filter.py) so the MoViNet clip
-    classifier only runs its sliding window within segments that have actual movement -
-    the classifier itself is unchanged. The window buffer resets at the start of each
-    segment since frames on either side of a motion gap aren't temporally contiguous.
-    person_model (shared YOLO11-pose) is used only for the single-person guard below,
-    checking whether the flagged moment actually involved two people."""
+    """Runs the MoViNet sliding window over a whole clip file.
+
+    Kept for checking the classifier against a recording. The live view does not
+    call this - it feeds violence_classifier its own rolling window straight from
+    the camera, at the same 8 fps the model was trained on. person_model (shared
+    YOLO11-pose) is used only for the single-person guard below, checking whether
+    the flagged moment actually involved two people."""
     video = cv2.VideoCapture(filepath)
     fps = video.get(cv2.CAP_PROP_FPS) or 25.0
     frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     video.release()
 
     frame_skip = max(1, round(fps / TARGET_FPS))
-    # motion_events = detect_motion(filepath)  # motion filter now runs once in analyze_action/action_analyzer.py
-    # segments = group_motion_segments(motion_events, fps, frame_count)
     segments = [{"start_t": 0.0, "end_t": frame_count / fps, "start_frame": 0, "end_frame": frame_count - 1}]
 
     windows_checked = 0

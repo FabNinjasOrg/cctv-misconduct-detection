@@ -1,37 +1,6 @@
-# Keeps the image lean and free of secrets.
-#
-# Clips and evidence are deliberately excluded and bind-mounted instead (see
-# compose.yaml), so the image stays small and a fresh install starts empty
-# rather than shipping with our test footage inside it.
-
 .git
-.gitignore
-.DS_Store
-**/.DS_Store
-.claude
-**/__pycache__
-*.pyc
-
-# Secrets are never baked into an image - compose passes them in at run time.
 .env
-.env.example
-
-# Runtime data - mounted from the host instead.
-uploaded_clips
 evidence
-spool
+uploaded_clips
 debug
-
-# Packaging and docs - not needed inside the image.
-#
-# Note this excludes docker/Dockerfile and docker/DOCKER.md but NOT
-# docker/requirements.txt: the build COPYs that file in, so excluding the whole
-# docker/ folder would break the dependency install.
-docker/Dockerfile
-docker/DOCKER.md
-.dockerignore
-compose.yaml
-requirements.txt
-README.md
-CLAUDE.md
-docs
+**/__pycache__

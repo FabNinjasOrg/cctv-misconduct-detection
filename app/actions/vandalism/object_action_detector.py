@@ -50,7 +50,6 @@ from ultralytics import YOLO
 # detectors - all three ran the identical pass over the same frames.
 from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whole_clip_segments
 
-# from app.shared.motion_filter import detect_motion, group_motion_segments  # motion filter now runs once in analyze_action/action_analyzer.py
 
 # COCO-17 keypoint indices, matching app/actions/spit/kinematic_detector.py's convention
 NOSE = 0
@@ -132,10 +131,8 @@ def detect_vandalism(filepath: str, person_model, tracks_by_segment: list = None
 
     tracks_by_segment lets a caller that runs several detectors over one clip hand
     in the pose pass it has already done, instead of each detector repeating the
-    identical work - see analyze_action/action_analyzer.py. Left out, this runs the
+    identical work - see the live engine. Left out, this runs the
     pass itself, so the standalone endpoint behaves exactly as before."""
-    # motion_events = detect_motion(filepath)  # motion filter now runs once in analyze_action/action_analyzer.py
-    # segments = group_motion_segments(motion_events, fps, frame_count)
     fps, segments = whole_clip_segments(filepath)
 
     candidates = []

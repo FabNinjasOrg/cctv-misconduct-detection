@@ -63,12 +63,37 @@ KEYPOINT_CONF_FLOOR = 0.15    # matches CONF_FLOOR in all three detectors
 # short and wide, so gating on width would reject real falls.
 #
 # The hips check above does the real work - measured across our clips, a genuine
-# event had hips on 12/12 sampled frames while the desk camera managed 1/13.
-# This is only a backstop for a pose so close that hips are found but the box
-# still cannot be trusted, so it is set loosely on purpose. At 0.60 it rejected
-# spit-1.mp4, a real detection whose subject measures 0.62 with hips plainly
-# visible; the offending desk footage measures 0.78.
-MAX_BOX_HEIGHT_FRACTION = 0.75
+# event had hips on 12/12 sampled frames. This is only a backstop for a pose so
+# close that hips are found but the box still cannot be trusted, so it is set
+# loosely on purpose.
+#
+# Twice it has been set too tight and thrown away real detections:
+#   0.60 rejected spit-1.mp4, a genuine event measuring 0.62 with hips plainly
+#        visible.
+#   0.75 cost spit-3.mp4 confidence (0.783 -> 0.628): 19.3% of the sampled
+#        detections in the reference spit clips sit above 0.75, all of them
+#        perfectly measurable.
+#
+# Hence 0.90, and measurement says it costs nothing to be this loose. Across the
+# reference clips and a correctly-placed camera, NOTHING exceeds 0.90:
+#
+#     sampled detections over 0.75   over 0.90
+#     live camera          0.0%        0.0%
+#     spit clips          19.3%        0.0%
+#     fall clips           0.0%        0.0%
+#     vandalism clips      0.0%        0.0%
+#
+# So 0.90 behaves identically to 0.75 on real footage while leaving genuine
+# close-range events intact - and still catches what this exists for, someone
+# filling essentially the whole frame, where the box has stopped describing a
+# body at all.
+#
+# If real events are still being missed, raise this before touching
+# REQUIRE_VISIBLE_HIPS; the log line at the end of track_segment names whichever
+# rule is firing. Note that hips is the rule that actually discriminates - a
+# well-placed camera shows hips on ~100% of detections, so if "hips not visible"
+# is what fires, the camera placement is the thing to fix, not this number.
+MAX_BOX_HEIGHT_FRACTION = 0.90
 
 
 def iou(box_a, box_b) -> float:
@@ -113,7 +138,7 @@ def pose_rejection_reason(det: dict, frame_height: int):
 def whole_clip_segments(filepath: str):
     """The clip as the single segment the detectors work over, plus its fps.
 
-    Motion gating runs once in analyze_action/action_analyzer.py rather than per
+    Motion gating runs once in the live engine rather than per
     detector, so there is nothing left to split the clip into here. Returns
     (fps, segments) so a caller that only wants the segment list does not have to
     open the video a second time for the frame rate."""
