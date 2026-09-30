@@ -90,6 +90,54 @@ DISPLAY_THRESHOLD = 0.6 #threshold
 
 ACTIONS = ("spit", "vandalism", "fall")
 
+# --- wait and confirm --------------------------------------------------------
+#
+# A score reaching DISPLAY_THRESHOLD is not an alarm yet, only a candidate. The
+# detectors look back over the window but never forward: they call the start of
+# something the moment it looks right, before seeing how it ends - a head dipped
+# at a phone reads as a spit's bow until the person is seen walking on with it.
+# So a candidate is watched for CONFIRM_SECONDS, and becomes an alarm only if its
+# score never falls below HOLD_THRESHOLD in that time.
+#
+# Measured by replaying every clip through this engine, with each clip's last
+# frame held for 4s afterwards - the clips end 0-2s after their event, and live
+# footage does not. "Real" is the 11 clips whose event the detectors can see
+# (spit-1..8, fall-2..4); the longer waits are simulated from the same scores:
+#
+#                          false alarms    real events still alarmed (of 11)
+#     alarm at once             26              11
+#     wait 1.0s                  8              11
+#     wait 1.5s                 ~6              10 - spit-6 lost
+#     wait 3.0s                 ~4               9 - spit-6 and fall-4 lost
+#
+# Real events hold: every real spit and fall stayed above HOLD_THRESHOLD for as
+# long as the footage lasted. Most false alarms do not - they fall back within
+# 0.3-1.2s, the phone-walker in fall-1 among them. 1.0s is the longest wait that
+# kept every real event; spit-6 held for exactly that long before dropping, so a
+# longer wait is not free, whatever it saves.
+#
+# fall-1 is not in the 11. Its old "fall" alarms were a phantom box over an empty
+# pit, and the man's real drop into it scores 0.00 in every version - the wait
+# cancels the phantom, which is right, but the clip's fall was never detected.
+#
+# HOLD_THRESHOLD sits below the alarm line on purpose. Real spits hover at
+# 0.60-0.70, and holding them to 0.6 itself would cancel a genuine event for
+# dipping to 0.59; the false alarms that fall back fall a long way, to 0.0-0.3.
+CONFIRM_SECONDS = 1.0
+HOLD_THRESHOLD = 0.5
+
+# Someone who leaves the picture during the wait is judged on what was seen, not
+# cancelled - a vandal who kicks and runs, or someone who falls out of shot,
+# leaves no "after" to watch. Only a score falling while the person is still in
+# view cancels an alarm. Not seen for this long counts as out of view.
+#
+# PROVISIONAL - reasoned, not measured: no test clip has a real event whose
+# person leaves during the wait. (fall-1 looks like one and is not: the man's
+# drop into the pit scores 0.00 in every version, and its old "fall" alarms were
+# a phantom box over the empty pit that inherited his track.) Every snapshot's
+# .json records left_view_before_confirmed so this can be checked on real events.
+LEFT_VIEW_SECONDS = 0.5
+
 # --- the change gate ---------------------------------------------------------
 #
 # Only score a person whose posture has actually changed during the window.
@@ -271,6 +319,12 @@ class LiveEngine:
         self._changes: dict = {}        # track_id -> how much they moved, see the change gate
         self._next_id = 1
 
+        # Wait and confirm - see CONFIRM_SECONDS. All three are guarded by
+        # _scores_lock, since the scorer writes them and the renderer reads them.
+        self._candidates: dict = {}     # (track_id, action) -> being watched, not yet an alarm
+        self._confirmed: dict = {}      # (track_id, action) -> an alarm, until its score falls
+        self._new_events: list = []     # confirmed since the last take_events()
+
         self._frame_number = 0
         self._frames = _FrameBuffer()
         _install_frame_adapters(self._frames)
@@ -390,8 +444,10 @@ class LiveEngine:
         """Takes one frame and returns everyone currently tracked, ready to draw.
 
         Each entry is {track_id, box, kpts_xy, kpts_conf, scores, signals,
-        action, confidence, history} - what render.py needs to draw, plus the
-        signals, which only evidence.py reads.
+        pose_change, action, confidence, checking, history} - what render.py
+        needs to draw. `action` is a confirmed alarm only; `checking` is one still
+        being watched - see CONFIRM_SECONDS. Confirmed alarms, with the picture
+        they need, come from take_events().
 
         `now` is seconds since this engine started, and defaults to the wall
         clock - which is what live footage wants, since a frame really did
@@ -543,6 +599,7 @@ class LiveEngine:
                 if len(records) >= MIN_RECORDS_TO_SCORE
             }
             all_tracks = {track_id: list(records) for track_id, records in self._tracks.items()}
+            last_seen = dict(self._last_seen)
 
         scores, signals, changes = {}, {}, {}
         for track_id, window in snapshot.items():
@@ -575,6 +632,103 @@ class LiveEngine:
             self._scores = scores
             self._signals = signals
             self._changes = changes
+            self._update_events(scores, signals, changes, snapshot, last_seen, now)
+
+    def _update_events(self, scores, signals, changes, windows, last_seen, now: float) -> None:
+        """Moves each (person, action) from candidate to alarm, or drops it.
+
+        See CONFIRM_SECONDS. A candidate starts at DISPLAY_THRESHOLD, is cancelled
+        if its score falls below HOLD_THRESHOLD while the person is still in view,
+        and becomes an alarm once it has held for CONFIRM_SECONDS. An alarm lasts
+        until its score falls below HOLD_THRESHOLD again.
+
+        What gets remembered for the picture is the candidate's best moment, not
+        the moment it was confirmed: by then the spit is over and the person is
+        walking away, and a picture of that proves nothing.
+
+        Runs under _scores_lock, so it must not take _tracks_lock."""
+        for track_id, person_scores in scores.items():
+            in_view = now - last_seen.get(track_id, now) <= LEFT_VIEW_SECONDS
+
+            for action, score in person_scores.items():
+                key = (track_id, action)
+
+                if key in self._confirmed:
+                    if in_view and score < HOLD_THRESHOLD:
+                        del self._confirmed[key]        # the event is over
+                    continue
+
+                candidate = self._candidates.get(key)
+                if candidate is None:
+                    if score >= DISPLAY_THRESHOLD and in_view:
+                        candidate = self._candidates[key] = {"since": now, "confidence": 0.0,
+                                                             "lowest": score, "left_view": False}
+                    else:
+                        continue
+                elif not in_view:
+                    # Out of view: the score now describes a frozen history, not
+                    # the person, so it is neither held against them nor kept.
+                    candidate["left_view"] = True
+                    continue
+                elif score < HOLD_THRESHOLD:
+                    del self._candidates[key]           # it did not hold - not what it looked like
+                    continue
+
+                candidate["lowest"] = min(candidate["lowest"], score)
+                if score > candidate["confidence"]:
+                    self._remember_peak(candidate, track_id, action, score,
+                                        scores, signals, changes, windows[track_id])
+
+        # Confirm whatever has held long enough - including anyone the tracker has
+        # since lost, who is judged on what was seen of them.
+        for key, candidate in list(self._candidates.items()):
+            if key[0] not in last_seen:
+                candidate["left_view"] = True
+            if now - candidate["since"] < CONFIRM_SECONDS:
+                continue
+
+            del self._candidates[key]
+            if key[0] in last_seen:
+                self._confirmed[key] = candidate["confidence"]
+            self._new_events.append({
+                **candidate["peak"],
+                "held_for": round(now - candidate["since"], 2),
+                "lowest_while_held": round(candidate["lowest"], 3),
+                "left_view": candidate["left_view"],
+            })
+
+        for key in [key for key in self._confirmed if key[0] not in last_seen]:
+            del self._confirmed[key]
+
+    def _remember_peak(self, candidate, track_id, action, score,
+                       scores, signals, changes, window) -> None:
+        """Keeps what the picture of this candidate needs, taken at its best moment."""
+        latest = window[-1]
+        candidate["confidence"] = score
+        candidate["peak"] = {
+            "track_id": track_id,
+            "action": action,
+            "confidence": score,
+            "scores": dict(scores[track_id]),
+            "signals": (signals.get(track_id) or {}).get(action) or {},
+            "pose_change": changes.get(track_id, 0.0),
+            "history": len(window),
+            "box": latest["box"],
+            "kpts_xy": latest["kpts_xy"],
+            "kpts_conf": latest["kpts_conf"],
+            # The clean frame this person was last seen in. A reference, not a
+            # copy - frames in the buffer are never drawn on.
+            "frame": self._frames.get(latest["frame"]),
+            "seen_at": time.time(),
+        }
+
+    def take_events(self) -> list:
+        """Alarms confirmed since the last call, each with its best moment attached.
+
+        Must be drained regularly even when nothing is saved, or the list grows."""
+        with self._scores_lock:
+            events, self._new_events = self._new_events, []
+        return events
 
     def _score_one(self, detector, window: list, others: dict, now: float) -> tuple:
         """Runs one detector over one person's window, returning (confidence, signals).
@@ -639,6 +793,8 @@ class LiveEngine:
             scores = dict(self._scores)
             signals = dict(self._signals)
             changes = dict(self._changes)
+            confirmed = dict(self._confirmed)
+            checking = set(self._candidates)
 
         with self._tracks_lock:
             snapshot = [
@@ -650,11 +806,12 @@ class LiveEngine:
         for track_id, latest, history in snapshot:
             person_scores = scores.get(track_id, {})
 
-            action, confidence = None, 0.0
-            if person_scores:
-                action, confidence = max(person_scores.items(), key=lambda item: item[1])
-                if confidence < DISPLAY_THRESHOLD:
-                    action = None
+            # Only a confirmed alarm is an action - a candidate still being
+            # watched is reported separately, as `checking`. See CONFIRM_SECONDS.
+            alarms = {a: c for (tid, a), c in confirmed.items() if tid == track_id}
+            action, confidence = max(alarms.items(), key=lambda item: item[1]) if alarms else (None, 0.0)
+            watched = [a for (tid, a) in checking if tid == track_id and a not in alarms]
+            watched.sort(key=lambda a: -person_scores.get(a, 0.0))
 
             people.append({
                 "track_id": track_id,
@@ -666,6 +823,7 @@ class LiveEngine:
                 "pose_change": changes.get(track_id, 0.0),
                 "action": action,
                 "confidence": confidence,
+                "checking": watched[0] if watched else None,
                 "history": history,
             })
 

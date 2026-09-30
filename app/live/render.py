@@ -9,7 +9,9 @@ Colour is the whole language of the view, so it is deliberately minimal:
 
     grey    tracked, still gathering history - too early to say anything
     green   watched, nothing above the threshold
-    red     something crossed the threshold
+    amber   something crossed the threshold and is being watched to see if it
+            holds - not an alarm yet (see CONFIRM_SECONDS in engine.py)
+    red     confirmed: it crossed the threshold and held
 
 Scores below the threshold are still printed, small, under the label. A live
 view is most useful while you are trying to trust it, and "fall 0.31" tells you
@@ -31,6 +33,7 @@ KEYPOINT_CONF_FLOOR = 0.15      # matches the detectors - below this a joint is 
 # BGR, because OpenCV.
 GREY = (150, 150, 150)
 GREEN = (80, 200, 80)
+AMBER = (40, 180, 250)
 RED = (60, 60, 235)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -47,24 +50,33 @@ WARMING_UP_RECORDS = 8
 FIGHT_THRESHOLD = 0.5
 
 
-def draw(frame, people: list, status: dict, fight: float = 0.0):
+def draw(frame, people: list, status: dict = None, fight: float = 0.0):
     """Returns the frame with everyone boxed, labelled and skeletoned.
 
     Draws onto a copy: the caller's frame may still be needed unmarked, and a
     detector looking back at a buffered frame must not find our overlay burned
-    into it."""
+    into it. With no status, the bottom line is left off - a saved picture of a
+    moment has no frame rate worth showing."""
     canvas = frame.copy()
 
     for person in people:
         warming = person["history"] < WARMING_UP_RECORDS
-        colour = GREY if warming else (RED if person["action"] else GREEN)
+        if warming:
+            colour = GREY
+        elif person["action"]:
+            colour = RED
+        elif person.get("checking"):
+            colour = AMBER
+        else:
+            colour = GREEN
 
         _draw_skeleton(canvas, person, colour)
         _draw_box(canvas, person, colour)
         _draw_label(canvas, person, colour, warming)
 
     _draw_fight(canvas, fight)
-    _draw_status(canvas, status)
+    if status is not None:
+        _draw_status(canvas, status)
     return canvas
 
 
@@ -114,6 +126,8 @@ def _draw_label(canvas, person: dict, colour, warming: bool) -> None:
         headline = f"#{person['track_id']}  reading..."
     elif person["action"]:
         headline = f"#{person['track_id']}  {person['action'].upper()} {person['confidence'] * 100:.0f}%"
+    elif person.get("checking"):
+        headline = f"#{person['track_id']}  {person['checking']}? checking..."
     else:
         headline = f"#{person['track_id']}  clear"
 

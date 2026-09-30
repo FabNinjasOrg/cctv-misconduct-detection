@@ -13,7 +13,7 @@
 
 cameras:
   - name: cam-1
-    url: rtsp://office-cam:${CAM1_PASSWORD}@192.168.1.75:554/stream1
+    url: rtsp://username:${CAM1_PASSWORD}@camera_ip:554/stream1
 
     # More cameras can be listed, and `--camera <name>` picks which one to
     # watch. One live view watches one camera at a time.

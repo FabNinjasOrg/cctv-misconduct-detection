@@ -9,7 +9,8 @@
 #      but several separate spikes in the same tracked window count for a lot more -
 #      that repetition is what actually separates "hit the bench four times" from "waved
 #      an arm once". (YOLO11-pose wrist/ankle keypoint velocity, normalized per person by
-#      their own box height so it's scale-invariant across camera distances.)
+#      their own box height so it's scale-invariant across camera distances, with
+#      their own steady travel taken off so walking isn't read as limbs striking.)
 #   2. Object-in-hand: is a tool/weapon-like object (bat, bottle, knife, ...) near the
 #      hand doing the swinging? (YOLO11 general object detector, COCO classes only -
 #      there's no dedicated "spray can"/"hammer"/"brick" class, so this is a coarse
@@ -55,6 +56,7 @@ from app.shared.pose_tracking import TRACK_FPS, iou as _iou, track_segment, whol
 NOSE = 0
 L_SHOULDER, R_SHOULDER = 5, 6
 L_WRIST, R_WRIST = 9, 10
+L_HIP, R_HIP = 11, 12
 L_ANKLE, R_ANKLE = 15, 16
 
 # --- step 2: pose tracking settings ---
@@ -68,6 +70,32 @@ SMOOTH_RADIUS = 1         # light smoothing so one noisy keypoint jump isn't rea
 # distance. Wrist and ankle speed are combined (whichever limb is moving faster in a
 # given frame) into one "limb strike speed" series, since a damaging strike could be a
 # hit, a kick, or a shove - the kinematics look similar either way.
+#
+# Limb speed has the person's steady travel taken off it. Measured against the picture
+# alone, walking IS a burst of repeated fast limb movements: the whole body travels,
+# the stepping foot travels about twice as fast as the body, and every step reads as a
+# separate strike - enough on its own to fill the repetition score.
+#
+# Steady travel, not the hips' every movement. Taking the hips' frame-to-frame motion
+# off each limb was tried first and deleted real vandalism: a kick carries the hips
+# with it (vandalism-2.mp4's kicks move them at 0.75 box-heights/s), and a stomp or a
+# jump moves the whole body, so subtracting the hips subtracted the strike too -
+# vandalism-1 fell from 0.58 to 0.46. Averaged over TRAVEL_SMOOTH_SECONDS either side,
+# a walk's velocity barely changes and is removed, while a lunge, kick or jump is over
+# too quickly to move the average much and stays: vandalism-1 is back to 0.57.
+#
+# What this does cost, measured: vandalism-2 goes from 0.65 to 0.56. Its kicks are
+# untouched (4.01 and 1.72, against 3.91 and 1.73), but one of its three "strikes" was
+# the man's own step as he walked up to the bike, at 0.99 - and with his travel taken
+# off, that step reads 0.90 and stops counting. That is this change working, but it
+# means the clip had been over the line partly on a footstep.
+#
+# And what it does not do: a step measured against the body still reads about 0.9,
+# right on STRIKE_SPEED_MIN, so steps are only pushed down to the bar, not well below
+# it. For someone striking from where they stand - the case these thresholds were
+# calibrated on - there is no travel to remove, so the thresholds keep their meaning.
+TRAVEL_SMOOTH_SECONDS = 0.5   # half-width of the window the body's travel is averaged over -
+                               # about two walking steps in all
 STRIKE_SPEED_MIN = 0.9        # combined wrist/ankle speed below this is never counted as a strike
 STRIKE_RELEASE_RATIO = 0.6    # speed must drop back below MIN * this ratio to end one strike and
                                # allow the next one to be counted separately, instead of one long blur
@@ -199,8 +227,23 @@ def compute_kinematics(records: list) -> dict | None:
     def kconf(i, idx):
         return float(records[i]["kpts_conf"][idx])
 
+    def mid_hip(i):
+        if kconf(i, L_HIP) >= CONF_FLOOR and kconf(i, R_HIP) >= CONF_FLOOR:
+            return (kp(i, L_HIP) + kp(i, R_HIP)) / 2
+        return None
+
+    # The body's velocity between each frame and the one before, in pixels per second -
+    # None where a hip is missing in either frame.
+    hip_velocity = [None] * n
+    for i in range(1, n):
+        dt = ts[i] - ts[i - 1]
+        hip_now, hip_prev = mid_hip(i), mid_hip(i - 1)
+        if dt > 0 and hip_now is not None and hip_prev is not None:
+            hip_velocity[i] = (hip_now - hip_prev) / dt
+
     wrist_speed = [0.0] * n
     ankle_speed = [0.0] * n
+    travel_speed = [0.0] * n
 
     for i in range(1, n):
         dt = ts[i] - ts[i - 1]
@@ -208,10 +251,22 @@ def compute_kinematics(records: list) -> dict | None:
             continue
         bh = box_heights[i]
 
+        # The person's steady travel around this moment, taken off every limb below -
+        # see the note on TRAVEL_SMOOTH_SECONDS. With no hip readings nearby there is
+        # nothing to subtract, and the limb is measured against the picture as it
+        # always was.
+        nearby = [
+            v for j, v in enumerate(hip_velocity)
+            if v is not None and abs(ts[j] - ts[i]) <= TRAVEL_SMOOTH_SECONDS
+        ]
+        velocity = np.mean(nearby, axis=0) if nearby else np.zeros(2)
+        travel = velocity * dt
+        travel_speed[i] = float(np.linalg.norm(velocity)) / bh
+
         wrist_speeds = []
         for idx in (L_WRIST, R_WRIST):
             if kconf(i, idx) >= CONF_FLOOR and kconf(i - 1, idx) >= CONF_FLOOR:
-                dist = float(np.linalg.norm(kp(i, idx) - kp(i - 1, idx)))
+                dist = float(np.linalg.norm(kp(i, idx) - kp(i - 1, idx) - travel))
                 wrist_speeds.append(dist / bh / dt)
         if wrist_speeds:
             wrist_speed[i] = max(wrist_speeds)
@@ -219,7 +274,7 @@ def compute_kinematics(records: list) -> dict | None:
         ankle_speeds = []
         for idx in (L_ANKLE, R_ANKLE):
             if kconf(i, idx) >= CONF_FLOOR and kconf(i - 1, idx) >= CONF_FLOOR:
-                dist = float(np.linalg.norm(kp(i, idx) - kp(i - 1, idx)))
+                dist = float(np.linalg.norm(kp(i, idx) - kp(i - 1, idx) - travel))
                 ankle_speeds.append(dist / bh / dt)
         if ankle_speeds:
             ankle_speed[i] = max(ankle_speeds)
@@ -229,6 +284,7 @@ def compute_kinematics(records: list) -> dict | None:
         "records": records,
         "wrist_speed": _smooth(wrist_speed),
         "ankle_speed": _smooth(ankle_speed),
+        "travel_speed": travel_speed,
     }
 
 
@@ -383,6 +439,7 @@ def score_event(filepath: str, features: dict, other_tracks: dict) -> tuple:
         "t_peak": round(t_peak, 2),
         "strike_count": strike_count,
         "peak_strike_speed": round(peak_strike_speed, 3),
+        "travel_speed_at_peak": round(features["travel_speed"][t_peak_index], 3),
         "strike_score": round(strike_score, 3),
         "tool_near_hand": tool_near_hand,
         "tool_score": tool_score,

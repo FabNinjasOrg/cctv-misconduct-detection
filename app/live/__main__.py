@@ -239,10 +239,12 @@ def main():
 
             now = time.monotonic()
 
-            # Save after drawing, so what lands on disk is the picture you would
-            # have seen on screen - box, skeleton and label included.
+            # Taken every frame even with --no-save, so confirmed detections
+            # never pile up unread. Each one carries its own best-moment frame,
+            # which is what gets drawn and saved - see CONFIRM_SECONDS.
+            events = engine.take_events()
             if snapshotter:
-                snapshotter.update(annotated, people, now, fight=fight)
+                snapshotter.update(annotated, people, now, fight=fight, events=events)
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 flagged = [p for p in people if p["action"]]
                 log.info(

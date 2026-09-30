@@ -419,6 +419,67 @@ def _hip_descent(features: dict, indices: list) -> float:
     return worst
 
 
+# --- the sitting guard -------------------------------------------------------
+#
+# A fall ends lying down; sitting down ends with the back upright. The hip check
+# above cannot tell them apart, because sitting drops the hip too - on the floor
+# as far as a real fall does. Three false falls from the live camera
+# (2026-09-29), all through "collapsed", all somebody sitting:
+#
+#     sat on a chair        hip descent 0.27    trunk 30deg from vertical
+#     sat on the floor      hip descent 0.44    trunk  1deg
+#     sat on the floor      hip descent 0.49    trunk  1deg
+#
+# against 0.41-0.62 for the real falls' collapses. What does differ is where the
+# shoulders end up: sitting keeps them a full back's height above the hips,
+# lying brings them down to the hips. So this measures the shoulders' height
+# above the hips while down, as a fraction of the same while upright just
+# before. Against the same person a moment earlier, so it holds at any distance,
+# and it still works for a fall along the camera's line of sight, where the
+# trunk angle never flips but the back does foreshorten. Every fall score of
+# 0.5 or more across all 46 clips, last frame held 4s:
+#
+#     real falls        fall-2 0.37-0.62   fall-3 0.26-0.49   fall-4 0.56
+#     not falls         fall-2's helper crouching 1.09, fight-4 0.84, fight-6 0.91-0.93
+#     live camera       the three sitters, upright backs - about 0.85-1.0,
+#                       estimated from the one frame each snapshot keeps
+#
+# 0.70 sits in that gap. Two it does not remove: the old desk camera sitting down
+# (0.57-0.61, inside the real range - it was a close-up of someone leaning into
+# a desk), and a fighter knocked to the ground in fight-1 (0.25, really down).
+# When it cannot be measured (shoulders or hips not found) it does not block -
+# a pose model loses a body lying at odd angles far more often than one sitting
+# up, so an unreadable pose is weak evidence of sitting.
+MAX_TORSO_LEFT = 0.70
+
+
+def _torso_left(features: dict, indices: list) -> float | None:
+    """How much of their standing back height the shoulders keep above the hips
+    across `indices` - near 1 sitting up, near 0 lying flat.
+
+    Measured against their most upright moment in the HIP_BASELINE_SECONDS
+    before, the same look-back as the hip check. None if it cannot be measured."""
+    if not indices:
+        return None
+    ts = features["ts"]
+    torso_y = features["torso_y"]
+
+    down = [torso_y[i] for i in indices if torso_y[i] is not None]
+    before = [
+        torso_y[j] for j in range(indices[0])
+        if torso_y[j] is not None and ts[indices[0]] - ts[j] <= HIP_BASELINE_SECONDS
+    ]
+    if not down or not before or max(before) <= 0:
+        return None
+    return float(np.median(down)) / max(before)
+
+
+def _lying(features: dict, indices: list) -> bool:
+    """Did they end up lying rather than sitting? See MAX_TORSO_LEFT."""
+    left = _torso_left(features, indices)
+    return left is None or left <= MAX_TORSO_LEFT
+
+
 def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
     """Turns a person's raw per-frame keypoints + box shape into the posture signals
     used for scoring. Returns None if there isn't enough data to say anything."""
@@ -438,6 +499,7 @@ def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
     aspect = [0.0] * n
     trunk_valid = [False] * n
     hip_y = [None] * n          # for the descent check - see _hip_descent below
+    torso_y = [None] * n        # shoulders' height above the hips - see _torso_left below
 
     for i in range(n):
         box_height = max(1e-6, records[i]["box_height"])
@@ -452,6 +514,7 @@ def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
             mid_hip = (kp(i, L_HIP) + kp(i, R_HIP)) / 2
             trunk_pitch[i] = abs(_pitch_angle(mid_shoulder - mid_hip))  # 0 = upright, ~90 = horizontal
             hip_y[i] = float(mid_hip[1])
+            torso_y[i] = float(mid_hip[1] - mid_shoulder[1])
 
     if not any(trunk_valid):
         return None
@@ -477,6 +540,7 @@ def compute_kinematics(records: list, segment_end_t: float) -> dict | None:
         "trunk_pitch": trunk_pitch,
         "aspect": aspect,
         "hip_y": hip_y,
+        "torso_y": torso_y,
         "vanish_at": vanish_at,
         "segment_end_t": segment_end_t,
     }
@@ -547,6 +611,7 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
     cluster_result = _two_cluster_split(trunk_pitch)
     fall_score = 0.0
     hip_descent = 0.0
+    torso_left = None
     swing_deg = 0.0
     down_std = None
     down_duration = 0.0
@@ -603,7 +668,10 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
             hip_descent = _hip_descent(features, down_indices)
             descended = hip_descent >= MIN_HIP_DESCENT
 
-            if sudden and held and descended:
+            # ...and ended up lying, not sitting - see MAX_TORSO_LEFT.
+            torso_left = _torso_left(features, down_indices)
+
+            if sudden and held and descended and _lying(features, down_indices):
                 fall_score = max(0.0, min(1.0,
                     (swing_deg - MIN_DOWN_SWING_DEG) / (DOWN_ANGLE_REF_DEG - MIN_DOWN_SWING_DEG)
                 ))
@@ -656,12 +724,15 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
                 ratio = float(np.median([aspect[i] for i in run])) / baseline_aspect
                 # ...and the hip has to have gone down with the outline. Sitting
                 # down compacts the box just as well as falling does - see
-                # MIN_HIP_DESCENT_COLLAPSE.
+                # MIN_HIP_DESCENT_COLLAPSE. It drops the hip as well, so they
+                # must also have ended up lying - see MAX_TORSO_LEFT.
                 if (ratio <= COLLAPSE_RATIO_MAX
-                        and _hip_descent(features, run) >= MIN_HIP_DESCENT_COLLAPSE):
+                        and _hip_descent(features, run) >= MIN_HIP_DESCENT_COLLAPSE
+                        and _lying(features, run)):
                     collapse_indices = run
                     collapse_ratio = ratio
                     hip_descent = max(hip_descent, _hip_descent(features, run))
+                    torso_left = _torso_left(features, run)
                     depth = (COLLAPSE_RATIO_MAX - ratio) / (COLLAPSE_RATIO_MAX - COLLAPSE_REF_RATIO)
                     collapse_score = max(0.0, min(1.0, COLLAPSE_BASE + (1.0 - COLLAPSE_BASE) * depth))
 
@@ -768,6 +839,10 @@ def score_event(features: dict, frame_width: float, frame_height: float, other_t
         # heights. Surfaced because it is the check that separates a fall from a
         # bend, so when a verdict looks wrong this is the first number to read.
         "hip_descent": round(hip_descent, 3),
+        # How much of their standing back height the shoulders kept above the
+        # hips - near 1 sitting up, near 0 lying. The check that separates a
+        # fall from sitting down; see MAX_TORSO_LEFT.
+        "torso_left": round(torso_left, 3) if torso_left is not None else None,
         "aspect_score": round(aspect_score, 3),
         "collapse_score": round(collapse_score, 3),
         "collapse_ratio": round(collapse_ratio, 3) if collapse_ratio is not None else None,

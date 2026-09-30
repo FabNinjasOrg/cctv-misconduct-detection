@@ -26,7 +26,8 @@ Watch a CCTV camera and see, as it happens, when someone **falls**, **fights**, 
    - **Fight:** judged on the **whole picture**, not on one person. A second AI model watches one second of video and says how much it looks like a fight.
 5. **Ignore stillness.** Someone standing or sitting still isn't judged at all. All four actions involve movement, so skipping still people prevents false alarms.
 6. **Show.** Boxes and labels are drawn on the video, and it goes to your browser.
-7. **Save.** When a score is high enough, the box turns red and a picture is saved.
+7. **Wait and check.** When a score reaches 60%, it isn't called yet. The box turns amber and it watches for 1 more second. If the score stays above 50% the whole time, it's confirmed. If it drops, it was something else, such as a head dipped at a phone, and nothing happens.
+8. **Save.** Once confirmed, the box turns red and a picture of the moment it peaked is saved.
 
 ### For developers
 
@@ -151,7 +152,8 @@ docker compose up -d --build
 |---|---|
 | **Grey** box | Just spotted someone. It is still gathering their movement, so it's too early to judge. |
 | **Green** box | Watching, and nothing detected |
-| **Red** box | Something detected. The label says what, e.g. `FALL 79%`. |
+| **Amber** box | Something looks likely, e.g. `spit? checking...`. It is waiting 1 second to see if it holds. Nothing is saved yet. |
+| **Red** box | Something detected and confirmed. The label says what, e.g. `FALL 79%`. |
 | **Red border** round the whole picture | A **fight** |
 
 - **Why fight looks different:** it is judged on the whole scene, not on one person. There's no single body to point at, so the whole picture gets the border.
@@ -168,14 +170,15 @@ evidence/live_view/cam-1/cam-1_20260925-161424_fall_79pct.jpg
                          └ camera   └ when       └ what └ how sure
 ```
 
-- **One picture per event:** each detection saves one picture, with a small `.json` file beside it.
-- **The picture:** it has the box, skeleton and label drawn on, so it shows what the system thought, not just what the camera saw.
-- **The `.json` file:** it holds every action's score and the reasons behind it. That's how you tell a wrong alarm from a right one.
+- **One picture per event:** each confirmed detection saves one picture, with a small `.json` file beside it.
+- **The picture:** it shows the moment the action peaked, not the second later when it was confirmed. It has the box, skeleton and label drawn on, so it shows what the system thought, not just what the camera saw.
+- **The `.json` file:** it holds every action's score, the reasons behind it, and how the 1-second check went. That's how you tell a wrong alarm from a right one.
 
   ```json
   { "action": "spit", "confidence": 0.6,
     "scores": { "spit": 0.6, "vandalism": 0.17, "fall": 0.0 },
-    "signals": { "swing_deg": 41.8, "bowed_duration_s": 3.9, "hand_proximity_score": 0.81 } }
+    "signals": { "swing_deg": 41.8, "bowed_duration_s": 3.9, "hand_proximity_score": 0.81 },
+    "confirmation": { "held_for_s": 1.2, "lowest_score_while_held": 0.58 } }
   ```
 
 ---

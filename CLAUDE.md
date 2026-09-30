@@ -103,6 +103,20 @@ against real events.
 the scorer stepped straight over spit-1's peak (0.23 against 0.77). Widening the
 window instead changed nothing — 6s and 12s scored identically.
 
+**A score crossing the line is a candidate, not an alarm.** The detectors look
+back but never forward, so they call the start of something before seeing how it
+ends. `_update_events` in `engine.py` watches each candidate for
+`CONFIRM_SECONDS` (1.0) and confirms it only if the score never falls below
+`HOLD_THRESHOLD` (0.5) while the person is in view. Someone who leaves the
+picture is judged on what was seen (provisional, not measured). Measured on
+every clip with its last frame held 4s: false alarms 26 → 8, and all 11 real
+spits and falls still alarm. At 1.5s, spit-6 is lost. fall-1 was never really
+detected: its old fall alarms were a phantom box over an empty pit. `action` from
+`people()` is a confirmed alarm only, and saved pictures come from
+`take_events()` at the candidate's best moment, not at confirmation. Fight is
+not wait-and-confirm — MoViNet already judges a clip, and no replay data exists
+for it.
+
 ### The four detectors
 
 - `spit/kinematic_detector.py` — tracks each person and scores keypoint
