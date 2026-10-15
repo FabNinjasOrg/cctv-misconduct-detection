@@ -297,6 +297,12 @@ The pictures go to `evidence/<today's date>/<clip name>/`, and `summary.json` in
 
 ---
 
+## Test videos
+
+Test video clips are in `uploaded_clips/`. Feel free to use them.
+
+---
+
 ## Running without Docker
 
 You need Python 3.11 or newer. then run:
@@ -330,7 +336,7 @@ cctv-detection/
 │
 ├── models/                the trained AI files
 ├── training/              the notebooks that trained the fall and fight models
-├── uploaded_clips/        test clips
+├── uploaded_clips/        test videos, free to use
 └── docs/                  design notes
 ```
 
