@@ -290,7 +290,7 @@ evidence/live_view/cam-1/cam-1_20260925-161424_fall_79pct.jpg
 The same detectors can be run over clips the camera already recorded:
 
 ```bash
-python -m app.live.replay uploaded_clips/real-clips
+python -m app.live.replay uploaded_clips/fall-1.mp4
 ```
 
 The pictures go to `evidence/<today's date>/<clip name>/`, and `summary.json` in the date folder lists what was found in every clip, including the ones where nothing was. Each picture's `.json` also says which clip it came from and how many seconds in (`clip`, `clip_time_s`).

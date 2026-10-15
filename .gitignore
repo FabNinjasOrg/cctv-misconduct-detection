@@ -9,10 +9,22 @@ evidence/*
 evidence/live_view/*
 !evidence/live_view/.gitkeep
 
-# Test clips for checking the detectors still work after a change. Too big for
-# git, and they are footage rather than code.
-uploaded_clips/*
-!uploaded_clips/.gitkeep
+# Test clips. The rest of uploaded_clips/ - our own camera's footage and the
+# AI-generated clips - is published as test data. These ones were downloaded
+# from news channels and social media: other people's videos of real people,
+# so they stay on this computer.
+uploaded_clips/fall-1.mp4
+uploaded_clips/fight-1.mp4
+uploaded_clips/fight-2.mp4
+uploaded_clips/fight-3.mp4
+uploaded_clips/fight-4.mp4
+uploaded_clips/fight-5.mp4
+uploaded_clips/fight-6.mp4
+uploaded_clips/fight-7.mp4
+uploaded_clips/spit-1.mp4
+
+# Footage from our own camera - kept on this computer.
+uploaded_clips/real-clips/
 
 # Working frames a detector writes while explaining itself. Created only when
 # something is found, safe to delete at any time.
