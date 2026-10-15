@@ -1,6 +1,6 @@
 # CCTV Misconduct Detection
 
-Watch an ordinary CCTV camera and spot **misconduct as it happens**: someone **fighting**, **vandalising** property or the camera itself, or **falling** and needing help. (Spitting detection is turned off for now.)
+Watch an ordinary CCTV camera and spot **misconduct as it happens**: someone **fighting**, **vandalising** property or the camera itself, **falling** and needing help, or **spitting** anywhere.
 
 > **Early stage.** It runs, but it is not reliable yet. Treat every alert as "go and look", never as proof. See [How well it works today](#how-well-it-works-today).
 
@@ -8,7 +8,7 @@ Watch an ordinary CCTV camera and spot **misconduct as it happens**: someone **f
 
 ## The goal
 
-Most CCTV is only watched after something has gone wrong. The aim here is a system that watches for misconduct **live**, so someone can step in while it is still happening.
+Most CCTV is only watched after something has gone wrong. The aim here is a system that watches for misconduct quickly after it happens, so maybe someone can step in while it is still happening.
 
 - **Real time.** Spot it as it happens, not hours later in a recording.
 - **Works with ordinary CCTV cameras.** Any camera that can stream video over your network (RTSP) will do. No special hardware.
@@ -38,7 +38,7 @@ Most CCTV is only watched after something has gone wrong. The aim here is a syst
 - **Caught 1 of 4 events** (a kick, as vandalism).
 - **5 of its 6 alarms were wrong.**
 
-**Why:** the two AI models were trained on other people's videos, filmed in other places. The vandalism check only measures how fast an arm or leg moves. None of it has been trained on footage from a real CCTV camera like ours yet. Fixing that is the main job now.
+**Why:** the two AI models were trained on other people's videos, filmed in other places. The vandalism check only measures how fast an arm or leg moves. None of it has been trained on footage from a real CCTV camera stream. Fixing that is the main job now.
 
 ---
 
