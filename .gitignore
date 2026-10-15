@@ -1,8 +1,11 @@
 # Secrets. .env.example is committed instead, with the variable names but no values.
 .env
 
-# Snapshots the live view saved. Yours, not the repo's - the folder is kept so a
-# fresh clone has somewhere to write.
+# Everything the live view and replay save - pictures of real people, so never
+# committed. Only evidence/live_view/.gitkeep is kept, so a fresh clone has
+# somewhere to write.
+evidence/*
+!evidence/live_view/
 evidence/live_view/*
 !evidence/live_view/.gitkeep
 

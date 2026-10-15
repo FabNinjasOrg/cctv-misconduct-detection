@@ -121,10 +121,14 @@ class Snapshotter:
         # (track_id, action) -> the clock reading when it was last saved
         self._last_saved: dict = {}
 
+        # The camera tamper last saved, until the view comes back - see update()
+        self._tamper_saved = None
+
         self.saved_count = 0
 
     def update(self, frame, people: list, now: float, fight: float = 0.0,
-               events: list = ()) -> list:
+               events: list = (), fight_detail: dict = None, tamper: dict = None,
+               when: float = None) -> list:
         """Saves a snapshot for anything newly confirmed. Returns what it wrote.
 
         `events` are the engine's confirmed detections (LiveEngine.take_events),
@@ -132,7 +136,10 @@ class Snapshotter:
         moment - that is what gets drawn and saved. `frame` is the annotated
         live frame, used only for fight. `now` is any steadily increasing clock -
         it is only ever compared against itself, so monotonic time is fine and
-        is better here than wall time, which can jump."""
+        is better here than wall time, which can jump. `fight_detail` is
+        LiveEngine.fight_detail(), `tamper` is LiveEngine.tamper(). `when` is the
+        wall-clock time `frame` shows, if not now - a replay passes the footage's
+        own time, so the fight and tamper pictures are named after it."""
         saved = []
 
         for event in events:
@@ -182,18 +189,40 @@ class Snapshotter:
             path = self._maybe_write(
                 frame, now, ("scene", "fight"), "fight", fight, None,
                 detail={
-                    # MoViNet returns one number and no breakdown, so there is
-                    # nothing else to record. How many people were in shot is
-                    # the one thing worth keeping: it is what the two-person
-                    # guard turns on.
+                    # MoViNet returns one number and no breakdown. What is worth
+                    # keeping is what it was shown - the crop - and how many
+                    # people were in the window, which the two-person guard
+                    # turns on.
                     "scope": "scene",
                     "scores": {"fight": fight},
-                    "signals": {},
+                    "signals": fight_detail or {},
                     "people_in_shot": len(people),
                 },
+                when=when,
             )
             if path:
                 saved.append(path)
+
+        # Camera tamper is scene-level too, and one picture per tamper is enough:
+        # a covered lens stays covered, and a black frame every 30s adds nothing.
+        # So it is saved when a tamper starts (or changes kind), not on the
+        # cooldown, and again only after the view has come back.
+        kind = (tamper or {}).get("kind")
+        if kind and kind != self._tamper_saved:
+            path = self._write(
+                frame, f"tamper-{kind}", tamper.get("confidence", 1.0), None,
+                detail={
+                    "scope": "camera",
+                    "scores": {"tamper": tamper.get("confidence", 1.0)},
+                    "signals": {"kind": kind, **(tamper.get("signals") or {})},
+                    "people_in_shot": len(people),
+                },
+                when=when,
+            )
+            if path:
+                self.saved_count += 1
+                saved.append(path)
+        self._tamper_saved = kind
 
         self._forget_old(now)
         return saved

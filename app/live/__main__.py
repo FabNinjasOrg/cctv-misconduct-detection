@@ -108,7 +108,7 @@ def _pick_camera(cameras: list, name: str | None):
 def main():
     parser = argparse.ArgumentParser(
         prog="python -m app.live",
-        description="Live camera view with real-time detection of falls, fights, spitting and vandalism.",
+        description="Live camera view with real-time detection of falls, fights and vandalism.",
     )
     parser.add_argument("--camera", help="which camera in camera.yaml (default: the first)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -226,6 +226,8 @@ def main():
             fps = (len(frame_stamps) - 1) / span if span > 0 else 0.0
 
             fight = engine.fight()
+            fight_detail = engine.fight_detail()
+            tamper = engine.tamper()
             annotated = render.draw(working, people, {
                 "connected": capture.connected,
                 "fps": fps,
@@ -233,7 +235,7 @@ def main():
                 # Say so on screen rather than leaving the reader to know that 15
                 # is the number to compare against.
                 "note": "SLOW - labels unreliable" if 0 < fps < args.fps * 0.85 else None,
-            }, fight=fight)
+            }, fight=fight, fight_crop=fight_detail.get("crop"), tamper=tamper)
             with latest_lock:
                 latest["frame"] = annotated
 
@@ -244,17 +246,19 @@ def main():
             # which is what gets drawn and saved - see CONFIRM_SECONDS.
             events = engine.take_events()
             if snapshotter:
-                snapshotter.update(annotated, people, now, fight=fight, events=events)
+                snapshotter.update(annotated, people, now, fight=fight, events=events,
+                                   fight_detail=fight_detail, tamper=tamper)
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 flagged = [p for p in people if p["action"]]
                 log.info(
-                    "%.1f fps, %d tracked%s%s%s",
+                    "%.1f fps, %d tracked%s%s%s%s",
                     fps, len(people),
                     "".join(
                         f", #{p['track_id']} {p['action']} {p['confidence'] * 100:.0f}%"
                         for p in flagged
                     ),
                     f", fight {fight * 100:.0f}%" if fight >= render.FIGHT_THRESHOLD else "",
+                    f", camera {tamper['kind']}" if tamper.get("kind") else "",
                     f", {snapshotter.saved_count} saved" if snapshotter else "",
                 )
                 last_heartbeat = now

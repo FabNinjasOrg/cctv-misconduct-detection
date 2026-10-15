@@ -33,9 +33,11 @@ from collections import deque
 import numpy as np
 
 from app.actions.fall import kinematic_detector as fall_det
+from app.actions.fall import stgcn_detector as fall_model
 from app.actions.fight import movinet_detector as fight_det
-from app.actions.spit import kinematic_detector as spit_det
+# from app.actions.spit import kinematic_detector as spit_det  # spit turned off
 from app.actions.vandalism import object_action_detector as vandalism_det
+from app.actions.vandalism.tamper_detector import TamperDetector
 from app.shared.pose_tracking import PERSON_CLASS_ID, iou, pose_rejection_reason
 
 log = logging.getLogger(__name__)
@@ -88,7 +90,8 @@ IOU_MATCH_MIN = 0.2
 # recorded pipeline would.
 DISPLAY_THRESHOLD = 0.6 #threshold
 
-ACTIONS = ("spit", "vandalism", "fall")
+# ACTIONS = ("spit", "vandalism", "fall")
+ACTIONS = ("vandalism", "fall")  # spit turned off
 
 # --- wait and confirm --------------------------------------------------------
 #
@@ -181,16 +184,61 @@ MIN_KEYPOINT_SAMPLES = 4    # a joint seen fewer times than this says nothing ab
 # on the reasoning above.
 MIN_POSE_CHANGE = 0.02
 
+# --- fall: two judges, both must agree ---------------------------------------
+#
+# A person's fall score is the LOWER of two independent answers:
+#
+#   the model   ST-GCN, trained on Le2i skeletons (fall/stgcn_detector.py) - did
+#               the last 3 seconds move like a fall?
+#   the rules   the hand-written kinematics (fall/kinematic_detector.py) - did the
+#               trunk flip, the outline collapse, the hips really go down?
+#
+# Each fails in a different place, and the other covers it. Replayed over every
+# clip with its last frame held 4s, confirmed fall alarms:
+#
+#                         real falls caught    other alarms
+#     rules alone           fall-2, -3, -4     a desk clip, a fighter knocked down
+#     model alone           fall-2, -3         48 - crowds, people in a brawl
+#     both must agree       fall-2, -3         a fighter knocked down - really down
+#
+# The model learned from one person in a quiet room, and in a crowd its skeletons
+# get stitched together from different people by the tracker - it calls that a
+# fall. The rules never see that. The rules, on the other hand, called all six
+# of the live camera's fall alarms on 2026-09-29, and every one was someone
+# sitting down on the floor or a chair; the model scores 0.00 on all four
+# minutes of this camera's recordings. Asking both is the one combination that
+# kept every real fall the model can see.
+#
+# What it costs: fall-4. Its man is already lying down when the clip starts, so
+# the model never sees a fall happen; only the rules called it. And a fall the
+# rules cannot read at all is now missed too - when the model has been trained on
+# this camera's own footage, it may be good enough to be trusted alone.
+
 # --- fight -------------------------------------------------------------------
 #
 # Fight is the odd one out and has to be handled separately. The other three
-# score a PERSON from their pose over time; MoViNet scores the WHOLE PICTURE
-# over a second of video, and returns one number for the scene. There is no
-# per-person answer to attach a label to.
+# score a PERSON from their pose over time; MoViNet scores the PEOPLE TOGETHER
+# over a second of video - one square crop around everyone in shot - and returns
+# one number for the scene. There is no per-person answer to attach a label to.
+#
+# The crop is what the model was trained on (fight/clip_classifier.py), so each
+# sampled frame keeps the person boxes the pose pass found in it - all of them,
+# including the ones too close to measure, exactly as in training.
 #
 # It also cannot ride along on the pose pass: it is its own 3D CNN and costs
 # about 156 ms a window, measured on 8 cores. So it runs on a slower duty cycle
 # of its own, and the frame rate the pose detectors depend on is unaffected.
+#
+# The model it replaced saw the whole picture squeezed to 172 x 172. Replayed
+# over every clip, windows called a fight (old -> new):
+#
+#     the seven fight clips          134 -> 216 of 310
+#     your acted fight (real-fight-1)  0 -> 2 of 32   (the two moments of contact)
+#     this camera, 4 min of normal     0 -> 0
+#     other clips                      3 -> 13  - 11 in crowds (people rushing to
+#                                                   someone who fell), 2 a lone man
+#                                                   kicking a bike, which the
+#                                                   two-person guard below discounts
 #
 # The model was trained on 8 frames sampled at 8 fps - one second of video - so
 # it must be fed at that rate regardless of what the tracking loop runs at.
@@ -201,10 +249,19 @@ FIGHT_WINDOW_FRAMES = fight_det.WINDOW_FRAMES       # 8, i.e. one second
 FIGHT_INTERVAL_SECONDS = 1.0                        # how often to classify
 
 # A fight needs at least two people. MoViNet alone will happily call one person
-# moving quickly a fight, so the recorded pipeline checks how many people were
-# near the flagged moment and discounts it if there was only one. Live, the
-# tracker already knows who is in shot, so the same guard costs nothing.
+# moving quickly a fight - vandalism-2's lone man kicking a bike scores 1.00 - so
+# the recorded pipeline checks how many people were near the flagged moment and
+# discounts it if there was only one. Live, the pose pass already found everyone
+# in each frame of the window, so the same guard costs nothing. Counted from
+# those boxes rather than from the tracker, which skips anyone too close to
+# measure - two people grappling are exactly that.
 FIGHT_MIN_PEOPLE = 2
+
+# --- camera tamper -----------------------------------------------------------
+#
+# Vandalism of the camera itself - covered, sprayed, turned away. Judged on the
+# whole picture, a couple of times a second, by vandalism/tamper_detector.py. It
+# is cheap enough (a 160-pixel grey copy) to run in the frame loop.
 
 
 class _FrameBuffer:
@@ -296,8 +353,8 @@ def _install_frame_adapters(buffer: _FrameBuffer) -> None:
     def read_many(_filepath, frame_numbers):
         return {number: buffer.get(number) for number in frame_numbers}
 
-    spit_det._read_frame_at = read_one
-    spit_det._read_frames_at = read_many
+    # spit_det._read_frame_at = read_one       # spit turned off
+    # spit_det._read_frames_at = read_many
     vandalism_det._read_frame_at = read_one
 
 
@@ -344,12 +401,20 @@ class LiveEngine:
         self._score_stop = threading.Event()
         self._score_thread = None
 
-        # Fight: its own frame buffer at its own rate, and its own thread.
+        # Fight: its own frame buffer at its own rate, and its own thread. Each
+        # entry is (frame, the person boxes found in it) - the boxes are what the
+        # model's crop is built from.
         self._fight_frames = deque(maxlen=FIGHT_WINDOW_FRAMES)
         self._fight_frames_lock = threading.Lock()
-        self._fight_last_sampled = -1.0
+        self._fight_next_sample = 0.0
+        self._fight_last_scored = 0.0
         self._fight_score = 0.0
+        self._fight_detail = {}
         self._fight_thread = None
+
+        # Camera tamper: fed from the frame loop, read by the renderer.
+        self._tamper = TamperDetector()
+        self._tamper_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Running scoring in the background
@@ -374,7 +439,7 @@ class LiveEngine:
         self._score_thread.start()
 
         # Fight gets its own thread rather than sharing the pose one: at ~156 ms
-        # a window it would otherwise hold up all three pose scores behind it.
+        # a window it would otherwise hold up the pose scores behind it.
         self._fight_thread = threading.Thread(
             target=self._fight_loop, daemon=True, name="live-fight"
         )
@@ -405,36 +470,44 @@ class LiveEngine:
         """Classifies the last second of video, over and over."""
         while not self._score_stop.is_set():
             started = time.monotonic()
-
-            with self._fight_frames_lock:
-                window = list(self._fight_frames)
-
-            if len(window) >= FIGHT_WINDOW_FRAMES:
-                score = self._score_fight(window)
-                with self._scores_lock:
-                    self._fight_score = score
+            self._fight_once()
 
             remaining = FIGHT_INTERVAL_SECONDS - (time.monotonic() - started)
             if remaining > 0:
                 self._score_stop.wait(remaining)
 
-    def _score_fight(self, window: list) -> float:
-        """One MoViNet window, with the same two-people guard the recorded path uses."""
+    def _fight_once(self) -> None:
+        """Classifies the last second of video once, if a whole second is in hand."""
+        with self._fight_frames_lock:
+            window = list(self._fight_frames)
+
+        if len(window) >= FIGHT_WINDOW_FRAMES:
+            score, detail = self._score_fight(window)
+            with self._scores_lock:
+                self._fight_score = score
+                self._fight_detail = detail
+
+    def _score_fight(self, window: list) -> tuple:
+        """One MoViNet window, with the same two-people guard the recorded path
+        uses. Returns (score, detail) - detail is what a snapshot records."""
+        frames = [frame for frame, _ in window]
+        boxes = [frame_boxes for _, frame_boxes in window]
         try:
-            score = float(fight_det.violence_classifier([window])[0])
+            score, crop = fight_det.fight_classifier(frames, boxes)
         except Exception as e:
             log.debug("fight scoring failed: %s", e)
-            return 0.0
+            return 0.0, {}
 
         # A fight takes two. The recorded pipeline re-runs pose around the
-        # flagged moment to count people; here the tracker already knows, so the
-        # same guard is free.
-        with self._tracks_lock:
-            people = len(self._tracks)
+        # flagged moment to count people; here every frame of the window already
+        # has its boxes, so the same guard is free.
+        people = max(len(frame_boxes) for frame_boxes in boxes)
+        detail = {"model_score": round(score, 3), "crop": list(crop), "people_in_window": people,
+                  "single_person_penalty_applied": people < FIGHT_MIN_PEOPLE}
         if people < FIGHT_MIN_PEOPLE:
             score *= fight_det.SINGLE_PERSON_PENALTY
 
-        return score
+        return score, detail
 
     # ------------------------------------------------------------------
     # Tracking - runs on every frame
@@ -462,15 +535,24 @@ class LiveEngine:
         self._frame_number += 1
         self._frames.add(self._frame_number, frame)
 
+        detections = self._detect(frame)
+        boxes = [det["box"] for det in detections]
+
         # Feed the fight window at ITS rate, not ours - MoViNet was trained on
         # 8 fps and a window has to be a real second of video. See
         # FIGHT_SAMPLE_FPS.
-        if now - self._fight_last_sampled >= 1.0 / FIGHT_SAMPLE_FPS:
-            self._fight_last_sampled = now
+        #
+        # On a fixed grid, 8 slots a second, like the ffmpeg fps=8 filter the
+        # training clips went through. "At least 1/8s since the last sample"
+        # would be wrong in a quiet way: at 15 fps it takes every other frame,
+        # which is 7.5 a second, and a window becomes 1.07s of video.
+        if now >= self._fight_next_sample:
+            self._fight_next_sample = max(self._fight_next_sample + 1.0 / FIGHT_SAMPLE_FPS, now)
             with self._fight_frames_lock:
-                self._fight_frames.append(frame)
+                self._fight_frames.append((frame, boxes))
 
-        detections = self._detect(frame)
+        with self._tamper_lock:
+            self._tamper.update(frame, boxes, now)
 
         with self._tracks_lock:
             self._match(detections, now)
@@ -484,6 +566,9 @@ class LiveEngine:
         if self._score_thread is None and now - self._last_scored_at >= SCORE_INTERVAL_SECONDS:
             self._score_all(now)
             self._last_scored_at = now
+        if self._fight_thread is None and now - self._fight_last_scored >= FIGHT_INTERVAL_SECONDS:
+            self._fight_once()
+            self._fight_last_scored = now
 
         return self.people()
 
@@ -584,7 +669,7 @@ class LiveEngine:
     # ------------------------------------------------------------------
 
     def _score_all(self, now: float) -> None:
-        """Re-scores every tracked person against all three pose detectors.
+        """Re-scores every tracked person against the pose detectors in ACTIONS.
 
         Takes a snapshot of every track first and releases the lock before doing
         any real work: scoring three detectors takes tens of milliseconds, and
@@ -601,16 +686,20 @@ class LiveEngine:
             all_tracks = {track_id: list(records) for track_id, records in self._tracks.items()}
             last_seen = dict(self._last_seen)
 
-        scores, signals, changes = {}, {}, {}
-        for track_id, window in snapshot.items():
-            change = _pose_change(window)
-            changes[track_id] = change
+        scores, signals = {}, {}
+        changes = {track_id: _pose_change(window) for track_id, window in snapshot.items()}
 
+        # The fall model scores everyone moving in one batch, ahead of the loop.
+        moving = {track_id: window for track_id, window in snapshot.items()
+                  if changes[track_id] >= MIN_POSE_CHANGE}
+        fall_model_scores = self._fall_model_scores(moving)
+
+        for track_id, window in snapshot.items():
             # Nothing in this window but somebody holding still. See the change
             # gate above: there is no event to find, so don't go looking - and
             # report zero rather than the last score, because "not moving" is
             # the truthful answer, not a stale one kept alive.
-            if change < MIN_POSE_CHANGE:
+            if track_id not in moving:
                 scores[track_id] = {action: 0.0 for action in ACTIONS}
                 signals[track_id] = {}
                 continue
@@ -621,9 +710,9 @@ class LiveEngine:
                 if other_id != track_id
             }
             scored = {
-                "spit": self._score_one(spit_det, window, others, now),
+                # "spit": self._score_one(spit_det, window, others, now),  # spit turned off
                 "vandalism": self._score_one(vandalism_det, window, others, now),
-                "fall": self._score_one(fall_det, window, others, now),
+                "fall": self._score_fall(window, others, now, fall_model_scores.get(track_id)),
             }
             scores[track_id] = {action: value for action, (value, _) in scored.items()}
             signals[track_id] = {action: detail for action, (_, detail) in scored.items()}
@@ -720,6 +809,7 @@ class LiveEngine:
             # copy - frames in the buffer are never drawn on.
             "frame": self._frames.get(latest["frame"]),
             "seen_at": time.time(),
+            "t": latest["t"],       # on the engine's clock - in a replay, seconds into the clip
         }
 
     def take_events(self) -> list:
@@ -771,6 +861,28 @@ class LiveEngine:
             log.debug("%s scoring failed: %s", detector.__name__.rsplit(".", 1)[-1], e)
             return 0.0, {}
 
+    @staticmethod
+    def _fall_model_scores(windows: dict) -> dict:
+        """The ST-GCN's answer for everyone in `windows`, as {track_id: (score, signals)}.
+        Wrapped like _score_one: a model error costs the fall score, not the view."""
+        if not windows:
+            return {}
+        try:
+            return fall_model.score_people(windows)
+        except Exception as e:
+            log.debug("fall model scoring failed: %s", e)
+            return {}
+
+    def _score_fall(self, window: list, others: dict, now: float, model_result) -> tuple:
+        """The rules' fall score and the model's, and the lower of the two - see
+        "fall: two judges" above. Both are kept in the signals, so a snapshot shows
+        which one held it back."""
+        rules, detail = self._score_one(fall_det, window, others, now)
+        model, model_detail = model_result or (0.0, {})
+        detail = {**detail, "rules_score": round(rules, 3), "model_score": round(model, 3),
+                  "model": model_detail}
+        return min(rules, model), detail
+
     # ------------------------------------------------------------------
     # What to draw
     # ------------------------------------------------------------------
@@ -778,10 +890,23 @@ class LiveEngine:
     def fight(self) -> float:
         """How much the last second of video looks like a fight, 0 to 1.
 
-        Scene-level rather than per-person: MoViNet classifies the whole picture,
-        so unlike the other three this does not belong to anyone in particular."""
+        Scene-level rather than per-person: MoViNet classifies the people
+        together, so unlike the other three this does not belong to anyone in
+        particular."""
         with self._scores_lock:
             return self._fight_score
+
+    def fight_detail(self) -> dict:
+        """How the last fight score was reached: the crop the model looked at, how
+        many people were in the window, whether the two-person guard applied."""
+        with self._scores_lock:
+            return dict(self._fight_detail)
+
+    def tamper(self) -> dict:
+        """Whether the camera itself looks tampered with: {kind, confidence,
+        signals}, kind being covered / blurred / moved, or None."""
+        with self._tamper_lock:
+            return self._tamper.state()
 
     def people(self) -> list:
         """Everyone currently tracked, with their latest scores.

@@ -13,6 +13,7 @@ torch                # MoViNet runs on this directly, not through ultralytics
 torchvision
 
 # MoViNet-A0 backbone (MIT) for the fight classifier - installed straight from
-# GitHub, so git must be available. The classifier checkpoint riding on top of it
-# is CC BY-NC 4.0, internal/research use only: read models/movinet/NOTICE.md
+# GitHub, so git must be available. The checkpoint riding on top of it is our own
+# (models/fight_movinet.pt, trained by training/fight_movinet_kaggle.ipynb), but
+# on research-only datasets - retrain on your own footage before anything ships.
 git+https://github.com/roggerfq/MoViNet-pytorch.git

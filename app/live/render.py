@@ -50,13 +50,15 @@ WARMING_UP_RECORDS = 8
 FIGHT_THRESHOLD = 0.5
 
 
-def draw(frame, people: list, status: dict = None, fight: float = 0.0):
+def draw(frame, people: list, status: dict = None, fight: float = 0.0,
+         fight_crop=None, tamper: dict = None):
     """Returns the frame with everyone boxed, labelled and skeletoned.
 
     Draws onto a copy: the caller's frame may still be needed unmarked, and a
     detector looking back at a buffered frame must not find our overlay burned
     into it. With no status, the bottom line is left off - a saved picture of a
-    moment has no frame rate worth showing."""
+    moment has no frame rate worth showing. `fight_crop` is the square the fight
+    model looked at; `tamper` is LiveEngine.tamper()."""
     canvas = frame.copy()
 
     for person in people:
@@ -74,26 +76,53 @@ def draw(frame, people: list, status: dict = None, fight: float = 0.0):
         _draw_box(canvas, person, colour)
         _draw_label(canvas, person, colour, warming)
 
-    _draw_fight(canvas, fight)
+    _draw_fight(canvas, fight, fight_crop)
+    _draw_tamper(canvas, tamper)
     if status is not None:
         _draw_status(canvas, status)
     return canvas
 
 
-def _draw_fight(canvas, fight: float) -> None:
-    """A border and banner across the whole frame when a fight is detected.
+def _draw_fight(canvas, fight: float, crop=None) -> None:
+    """A border and banner across the whole frame when a fight is detected, and a
+    thin square showing the part of the picture the model judged.
 
     Drawn differently from the other three on purpose. They belong to a person
-    and get a box round that person; fight is a judgement about the entire
-    scene, with no one body to point at. Framing the whole picture says that."""
+    and get a box round that person; fight is a judgement about the people
+    together, with no one body to point at. Framing the whole picture says that."""
     if fight < FIGHT_THRESHOLD:
         return
 
     height, width = canvas.shape[:2]
     cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), RED, 6)
+    if crop:
+        x1, y1, x2, y2 = (int(v) for v in crop)
+        cv2.rectangle(canvas, (x1, y1), (x2 - 1, y2 - 1), RED, 1)
     _text_with_backing(
         canvas, f"FIGHT {fight * 100:.0f}%", (width // 2 - 60, 32),
         RED, scale=0.8, thickness=2,
+    )
+
+
+# What a tamper is called on screen.
+TAMPER_LABELS = {
+    "covered": "CAMERA COVERED",
+    "blurred": "CAMERA BLURRED",
+    "moved": "CAMERA MOVED",
+}
+
+
+def _draw_tamper(canvas, tamper: dict = None) -> None:
+    """A banner when the camera itself has been tampered with - see
+    vandalism/tamper_detector.py. Below the fight banner, so both can show."""
+    if not tamper or not tamper.get("kind"):
+        return
+
+    height, width = canvas.shape[:2]
+    cv2.rectangle(canvas, (3, 3), (width - 4, height - 4), RED, 2)
+    _text_with_backing(
+        canvas, f"VANDALISM: {TAMPER_LABELS.get(tamper['kind'], tamper['kind'].upper())}",
+        (width // 2 - 150, 64), RED, scale=0.7, thickness=2,
     )
 
 

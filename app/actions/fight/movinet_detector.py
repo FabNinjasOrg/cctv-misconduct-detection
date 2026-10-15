@@ -3,31 +3,31 @@ import os
 
 import cv2
 
+from app.actions.fight import clip_classifier
 from app.actions.fight.person_guard import SINGLE_PERSON_PENALTY, max_people_nearby
-from app.actions.fight.vd_mil.movinet_classifier import MovinetViolenceClassifier
 
-BACKBONE_WEIGHTS_DIR = "models/movinet/backbone"
-HEAD_WEIGHTS_PATH = "models/movinet/model_20_state_dict.pt"  # CC BY-NC 4.0, internal/research use only - see models/movinet/NOTICE.md
-
-TARGET_FPS = 8.0        # the model was trained on clips sampled at this rate
-WINDOW_FRAMES = 8       # frames per classified clip
+# The fight model is our own, trained by training/fight_movinet_kaggle.ipynb - see
+# clip_classifier.py. The one it replaced (violence-detection-mil, CC BY-NC 4.0) is
+# still in models/movinet/ and vd_mil/, but nothing loads it any more.
+TARGET_FPS = clip_classifier.RATE       # the model was trained on clips sampled at this rate
+WINDOW_FRAMES = clip_classifier.WINDOW  # frames per classified clip
 STRIDE_FRAMES = 4       # hop between consecutive windows
 CONFIDENCE_MIN = 0.5    # ignore low-confidence guesses
 TOP_FRAMES_LIMIT = 1    # only the single highest-confidence window gets saved as evidence
 
 FIGHT_MIL_FRAMES_DIR = "debug/fight/movinet"
 
-violence_classifier = MovinetViolenceClassifier(BACKBONE_WEIGHTS_DIR, HEAD_WEIGHTS_PATH)
+fight_classifier = clip_classifier.FightClassifier()
 
 
 def detect_fighting_mil(filepath: str, person_model) -> dict:
     """Runs the MoViNet sliding window over a whole clip file.
 
     Kept for checking the classifier against a recording. The live view does not
-    call this - it feeds violence_classifier its own rolling window straight from
+    call this - it feeds fight_classifier its own rolling window straight from
     the camera, at the same 8 fps the model was trained on. person_model (shared
-    YOLO11-pose) is used only for the single-person guard below, checking whether
-    the flagged moment actually involved two people."""
+    YOLO11-pose) finds the people the model is cropped to, and feeds the
+    single-person guard below. Frames are scaled to 640 wide first, as live."""
     video = cv2.VideoCapture(filepath)
     fps = video.get(cv2.CAP_PROP_FPS) or 25.0
     frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -51,10 +51,15 @@ def detect_fighting_mil(filepath: str, person_model) -> dict:
                 break
 
             if (frame_number - segment["start_frame"]) % frame_skip == 0:
-                window.append({"frame": frame, "t": round(frame_number / fps, 2)})
+                height, width = frame.shape[:2]
+                if width > 640:
+                    frame = cv2.resize(frame, (640, round(height * 640 / width)), interpolation=cv2.INTER_AREA)
+                boxes = person_model(frame, verbose=False)[0].boxes.xyxy.cpu().numpy().tolist()
+                window.append({"frame": frame, "boxes": boxes, "t": round(frame_number / fps, 2)})
                 if len(window) >= WINDOW_FRAMES:
                     windows_checked += 1
-                    confidence = float(violence_classifier([[item["frame"] for item in window]])[0])
+                    confidence, _ = fight_classifier([item["frame"] for item in window],
+                                                     [item["boxes"] for item in window])
                     best_confidence = max(best_confidence, confidence)
                     center = window[WINDOW_FRAMES // 2]
 

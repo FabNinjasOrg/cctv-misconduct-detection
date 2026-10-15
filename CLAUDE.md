@@ -30,14 +30,20 @@ app/
     evidence.py      one snapshot per event, with a cooldown
     server.py        MJPEG over HTTP
     config.py        reads camera.yaml
+    replay.py        runs recorded clips through the same engine, into evidence/<date>/
   actions/           one package per action
     spit/  fight/  vandalism/  fall/
   shared/
     pose_tracking.py the pose pass and the usable-pose gate, shared by three
 
 evidence/live_view/  results - one folder per camera, annotated stills only
-models/              YOLO11-pose, YOLO11 (objects, for vandalism), movinet/
-uploaded_clips/      test clips with known answers, for regression checking
+evidence/<date>/     replay results - one folder per clip, plus summary.json
+models/              YOLO11-pose, YOLO11 (objects, for vandalism), and our own
+                     fall_stgcn.pt and fight_movinet.pt. movinet/ is the old
+                     fight model (CC BY-NC) - kept, no longer loaded
+training/            the Kaggle notebooks that trained fall_stgcn.pt and fight_movinet.pt
+uploaded_clips/      test clips with known answers, for regression checking;
+                     real-clips/ is footage from the real camera
 docs/                design notes (general.md)
 ```
 
@@ -55,6 +61,8 @@ python -m app.live                   # then http://localhost:8088
 python -m app.live --no-save         # watch only, write nothing
 python -m app.live --width 480       # faster on a slow machine
 python -m app.live --port 9000       # if 8088 is taken
+
+python -m app.live.replay uploaded_clips/real-clips   # recorded clips -> evidence/<today>/
 ```
 
 Python is `/Users/harshprajapati/miniconda3/bin/python3` (3.13). No test suite,
@@ -114,27 +122,42 @@ spits and falls still alarm. At 1.5s, spit-6 is lost. fall-1 was never really
 detected: its old fall alarms were a phantom box over an empty pit. `action` from
 `people()` is a confirmed alarm only, and saved pictures come from
 `take_events()` at the candidate's best moment, not at confirmation. Fight is
-not wait-and-confirm — MoViNet already judges a clip, and no replay data exists
-for it.
+not wait-and-confirm — MoViNet already judges a clip, and your acted fight only
+crosses the line for single seconds (the moments of contact), which a wait would
+throw away.
 
 ### The four detectors
 
-- `spit/kinematic_detector.py` — tracks each person and scores keypoint
-  kinematics over time: a held bowed-head plateau, walking vs stationary,
-  contact with another person.
+- `spit/kinematic_detector.py` — **turned off** (commented out in `engine.py`).
+  Tracks each person and scores keypoint kinematics over time: a held
+  bowed-head plateau, walking vs stationary, contact with another person.
 - `vandalism/object_action_detector.py` — scores wrist/ankle velocity for a fast
   swing or kick, boosted if a YOLO11-detected tool (bat, bottle, knife) is near
   the swinging hand. Deliberately conservative; vandalism has no single motion
   signature the way spitting and fighting do.
-- `fall/kinematic_detector.py` — flags a trunk angle and box shape flipping from
-  upright to horizontal in well under a second, and staying down. Doesn't try to
-  guess *why* they fell.
-- `fight/movinet_detector.py` — **the odd one out.** A MoViNet clip classifier
-  scoring the whole picture over 8 frames sampled at 8 fps. Scene-level, not
+- `vandalism/tamper_detector.py` — vandalism of the camera itself: covered,
+  blurred/sprayed, or turned. Plain image maths against a learned normal view,
+  held 5s. Scene-level, with its own banner and one snapshot per tamper.
+- **Fall is two judges, and the score is the lower of them** (see "fall: two
+  judges" in `engine.py`). `fall/kinematic_detector.py` flags a trunk angle and
+  box shape flipping from upright to horizontal in well under a second, and
+  staying down. `fall/stgcn_detector.py` is an ST-GCN trained on Le2i skeletons,
+  reading each person's last 3 seconds. Alone, the rules called every sitter on
+  the live camera a fall, and the model called crowds and brawls falls; together
+  they kept the real falls and dropped both.
+- `fight/movinet_detector.py` — **the odd one out.** MoViNet-A0 fine-tuned on
+  RWF-2000 + RLVS (`fight/clip_classifier.py`), scoring a square crop around
+  everyone in shot over 8 frames sampled at 8 fps — the crop is what it was
+  trained on, so each sampled frame keeps its person boxes. Scene-level, not
   per-person, so it gets its own buffer, thread and banner rather than a label on
-  somebody. `violence_classifier([frames])` is called directly by the live
+  somebody. `fight_classifier(frames, boxes)` is called directly by the live
   engine; `detect_fighting_mil()` is the file-based version, kept for checking
   against a recording.
+
+**The trained models must be fed exactly as in training** — 640 wide, 15 fps
+skeletons from yolo11n-pose for fall; 8 fps, the people crop, 172x172 for fight.
+Both check their checkpoint's config at load. Changing the frame width, rate or
+pose model means retraining, not just a constant.
 
 ## Accuracy work already done — read before tuning
 
@@ -174,10 +197,13 @@ the camera so there are real events from the same room to protect.
 
 ## Constraints
 
-- **Spit, vandalism and fall are pose-only** — no fine-tuned models, no LLM
-  calls. Fight is the exception (MoViNet).
-- Licensing, unresolved: `models/movinet/` is CC BY-NC 4.0 (cannot ship
-  commercially); Ultralytics YOLO is AGPL-3.0.
+- **Spit and vandalism are pose-only** (plus the tamper check, plain image
+  maths) — no trained models, no LLM calls. Fall and fight use models trained by
+  the notebooks in `training/`.
+- Licensing, unresolved: the fight model starts from MoViNet's Apache-2.0
+  Kinetics weights, but RWF-2000, RLVS and Le2i are research-only datasets, so
+  both trained models need retraining on your own footage before anything ships.
+  `models/movinet/` (old, unused) is CC BY-NC 4.0; Ultralytics YOLO is AGPL-3.0.
 - Camera placement beats tuning. The detectors assume a whole person at a
   distance; a close-up camera breaks the arithmetic rather than degrading it.
   Moving one camera took 6 false alarms in 13 minutes to 0, with no code change.
